@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# Version: 2.14.0
+# Version: 2.15.0
 # Date:    2026-06-18
-# Notes:   Fix ES IP detection: try all local non-loopback IPs when 127.0.0.1 fails
-#          (DataCore ES binds to private/management interface, not lo). Accept HTTP 401.
+# Notes:   Collect last-24h application logs per detected role (journald + file fallback).
 
 set -euo pipefail
 
@@ -800,6 +799,103 @@ if command -v rpm &>/dev/null; then
     [ -n "$_pkgs" ] && INSTALLED_PACKAGES="[${_pkgs}]"
 fi
 
+# ─── Log collection (last 24h per detected role) ─────────────────────────────
+# _has_role: check if ROLES JSON contains a given role string
+_has_role() { printf '%s' "$ROLES" | grep -q "\"role\":\"$1\""; }
+
+# _collect_log UNIT GLOB...
+#   1. Try journald unit (time-filtered to last 24h)
+#   2. Fallback: file globs, most-recent-first
+#   3. Deduplicate if > 50 KB by stripping timestamps and counting occurrences
+_collect_log() {
+    local unit="$1"; shift
+    local cap=102400  # 100 KB hard cap
+    local raw=""
+
+    if [ -n "$unit" ] && command -v journalctl &>/dev/null; then
+        raw=$(journalctl -u "$unit" --since "24 hours ago" \
+              -o short-iso --no-pager -q 2>/dev/null | head -c $cap || true)
+    fi
+
+    if [ -z "$raw" ]; then
+        local glob f
+        for glob in "$@"; do
+            for f in $glob; do
+                [ -f "$f" ] || continue
+                # Lines from last 24h: grep by today/yesterday date prefix
+                local today yesterday
+                today=$(date -u '+%Y-%m-%d' 2>/dev/null || true)
+                yesterday=$(date -u -d '1 day ago' '+%Y-%m-%d' 2>/dev/null \
+                         || date -u -v-1d '+%Y-%m-%d' 2>/dev/null || true)
+                if [ -n "$today" ]; then
+                    raw=$(grep -E "^(${today}|${yesterday})" "$f" 2>/dev/null \
+                          | head -c $cap || true)
+                fi
+                [ -z "$raw" ] && raw=$(tail -n 5000 "$f" 2>/dev/null | head -c $cap || true)
+                [ -n "$raw" ] && break
+            done
+            [ -n "$raw" ] && break
+        done
+    fi
+
+    [ -z "$raw" ] && return 0
+
+    # Deduplicate: strip timestamp prefix, count, sort by frequency desc
+    if [ ${#raw} -gt 51200 ]; then
+        raw=$(printf '%s\n' "$raw" | awk '
+        {
+            msg = $0
+            sub(/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.0-9]*[+-][0-9:]+ /, "", msg)
+            sub(/^[A-Z][a-z][a-z]  ?[0-9]+ [0-9]{2}:[0-9]{2}:[0-9]{2} [^ ]+ /, "", msg)
+            if (length(msg) > 0) count[msg]++
+        }
+        END { for (m in count) printf "[x%d] %s\n", count[m], m }
+        ' 2>/dev/null | sort -t']' -k1 -rn | head -500 \
+          || printf '%s' "$raw" | tail -c 51200)
+    fi
+
+    printf '%s' "$raw"
+}
+
+_LOG_HAPROXY=""
+_LOG_GATEWAY=""
+_LOG_LCS_SERVER=""
+_LOG_ES=""
+_LOG_CASTOR=""
+_LOG_SCS=""
+_LOG_REDIS=""
+
+_has_role "HAPROXY"              && _LOG_HAPROXY=$(     _collect_log "haproxy"         "/var/log/haproxy.log" "/var/log/haproxy/*.log")
+_has_role "CONTENT_GATEWAY"      && _LOG_GATEWAY=$(     _collect_log "caringo-gateway" "/var/log/datacore/gateway*.log" "/var/log/datacore/contentgateway*.log" "/var/log/caringo/gateway*.log" "/var/log/datacore/*.log")
+_has_role "LISTING_CACHE_SERVER" && _LOG_LCS_SERVER=$(  _collect_log "caringo-gateway" "/var/log/datacore/lcs*.log" "/var/log/datacore/listingcache*.log" "/var/log/caringo/gateway*.log")
+# LCS server and gateway share the same service — reuse if empty
+_has_role "LISTING_CACHE_SERVER" && [ -z "$_LOG_LCS_SERVER" ] && _LOG_LCS_SERVER="$_LOG_GATEWAY"
+_has_role "ELASTICSEARCH"        && _LOG_ES=$(          _collect_log "elasticsearch"   "/var/log/elasticsearch/*.log" "/var/log/datacore/elasticsearch*.log")
+# CASTOR: on SCS (syslog server) or on a bare storage node
+_has_role "SCS"                  && _LOG_CASTOR=$(      _collect_log "castor"          "/var/log/caringo/castor.log" "/var/log/datacore/castor*.log" "/var/log/caringo/*.log")
+_has_role "UNKNOWN"              && [ -z "$_LOG_CASTOR" ] && \
+    _LOG_CASTOR=$(                                       _collect_log "castor"          "/var/log/caringo/castor.log" "/var/log/datacore/castor*.log" "/var/log/caringo/*.log")
+_has_role "SCS"                  && _LOG_SCS=$(         _collect_log "scs"             "/var/log/datacore/scs*.log" "/var/log/caringo/scs*.log")
+_has_role "LISTING_CACHE"        && _LOG_REDIS=$(       _collect_log "redis-server"    "/var/log/redis/*.log" "/var/log/redis/redis*.log")
+
+_log_entries=""
+_add_log_json() {
+    local role="$1" content="$2"
+    [ -z "$content" ] && return
+    [ -n "$_log_entries" ] && _log_entries+=","
+    local _esc
+    _esc=$(jq_escape "$content")
+    _log_entries+="\"${role}\":\"${_esc}\""
+}
+_add_log_json "HAPROXY"              "$_LOG_HAPROXY"
+_add_log_json "CONTENT_GATEWAY"      "$_LOG_GATEWAY"
+_add_log_json "LISTING_CACHE_SERVER" "$_LOG_LCS_SERVER"
+_add_log_json "ELASTICSEARCH"        "$_LOG_ES"
+_add_log_json "CASTOR"               "$_LOG_CASTOR"
+_add_log_json "SCS"                  "$_LOG_SCS"
+_add_log_json "LISTING_CACHE"        "$_LOG_REDIS"
+LOGS_JSON="{${_log_entries}}"
+
 # ─── Output JSON ─────────────────────────────────────────────────────────────
 
 cat <<EOF
@@ -846,6 +942,7 @@ cat <<EOF
   "is_syslog_server": $IS_SYSLOG_SERVER,
   "is_ntp_server": $IS_NTP_SERVER,
   "is_dhcp_server": $IS_DHCP_SERVER,
-  "is_pxe_server": $IS_PXE_SERVER
+  "is_pxe_server": $IS_PXE_SERVER,
+  "logs": $LOGS_JSON
 }
 EOF

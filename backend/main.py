@@ -1,6 +1,6 @@
-# Version: 1.8.0
+# Version: 1.9.0
 # Date:    2026-06-18
-# Notes:   export-report returns a single .html file instead of a ZIP.
+# Notes:   export-report inlines Tailwind CDN for fully offline HTML.
 
 from __future__ import annotations
 import asyncio
@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import re
+import urllib.request
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,10 +24,12 @@ from models import (
     Credential, CredentialCreate,
     Server, ServerCreate,
     Inventory, AuditRun, AuditResult,
+    AnalysisResult, InventorySettings,
 )
 from audit import run_audit
 from svg_gen import generate_svg
 from health_report import generate_health_report_html
+from analysis import run_analysis
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -38,6 +41,28 @@ FRONTEND_DIR   = _APP_ROOT / "frontend"
 DUMPS_DIR      = DATA_DIR / "dumps"
 
 app = FastAPI(title="ARCIS-SWARM", version="1.0.0")
+
+# Cache for Tailwind CDN script — fetched once per process lifetime
+_tailwind_cdn_cache: str | None = None
+
+
+def _fetch_tailwind_inline() -> str:
+    """Download Tailwind CDN JS and return it as a string. Cached in memory."""
+    global _tailwind_cdn_cache
+    if _tailwind_cdn_cache is not None:
+        return _tailwind_cdn_cache
+    try:
+        req = urllib.request.Request(
+            "https://cdn.tailwindcss.com",
+            headers={"User-Agent": "ARCIS-SWARM/1.9 export"},
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            _tailwind_cdn_cache = resp.read().decode("utf-8")
+            log.info("Tailwind CDN fetched and cached (%d bytes)", len(_tailwind_cdn_cache))
+            return _tailwind_cdn_cache
+    except Exception as exc:
+        log.warning("Could not fetch Tailwind CDN for inline export: %s", exc)
+        return ""  # export still works, just unstyled
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -159,6 +184,8 @@ async def delete_server(server_id: str):
 # ─── Audit ────────────────────────────────────────────────────────────────────
 
 _current_audit: Optional[AuditRun] = None
+_current_analysis: Optional[AnalysisResult] = None
+_analysis_cancel: list[bool] = [False]
 
 
 async def _do_audit(audit_run: AuditRun, inv: Inventory) -> None:
@@ -200,6 +227,9 @@ async def _do_audit(audit_run: AuditRun, inv: Inventory) -> None:
         inv2.last_audit = audit_run
         save_inventory(inv2)
         _current_audit = audit_run
+        # Trigger AI analysis asynchronously once audit data is saved
+        if audit_run.status == "done" and audit_run.results:
+            asyncio.create_task(_do_analysis(audit_run.results))
 
 
 @app.post("/api/audit/run")
@@ -249,6 +279,94 @@ async def clear_audit():
     _current_audit = None
     inv = load_inventory()
     inv.last_audit = None
+    save_inventory(inv)
+    return {"ok": True}
+
+
+# ─── Analysis ────────────────────────────────────────────────────────────────
+
+async def _do_analysis(results: list[AuditResult]) -> None:
+    global _current_analysis, _analysis_cancel
+    inv = load_inventory()
+    mcp_token  = os.environ.get("CLAUDE_HUB_MCP_TOKEN", "") or inv.settings.mcp_hub_token
+    anthro_key = os.environ.get("ANTHROPIC_API_KEY", "") or inv.settings.anthropic_api_key
+
+    if not anthro_key:
+        log.warning("No ANTHROPIC_API_KEY configured — skipping AI analysis")
+        return
+
+    _analysis_cancel[0] = False
+    started = datetime.now(timezone.utc).isoformat()
+    _current_analysis = AnalysisResult(status="running", started_at=started)
+
+    try:
+        result = await run_analysis(results, mcp_token, anthro_key, _analysis_cancel)
+        result.started_at = started
+        result.finished_at = datetime.now(timezone.utc).isoformat()
+        _current_analysis = result
+        inv2 = load_inventory()
+        inv2.last_analysis = result
+        save_inventory(inv2)
+        log.info("AI analysis complete: %d modules, %d correlations",
+                 len(result.modules), len(result.cross_correlations))
+    except asyncio.CancelledError:
+        _current_analysis.status = "cancelled"
+        _current_analysis.finished_at = datetime.now(timezone.utc).isoformat()
+    except Exception:
+        log.exception("AI analysis failed")
+        _current_analysis.status = "error"
+        _current_analysis.error = "Analysis failed — check backend logs"
+        _current_analysis.finished_at = datetime.now(timezone.utc).isoformat()
+
+
+@app.get("/api/analysis/status")
+async def analysis_status():
+    if _current_analysis is not None:
+        return _current_analysis.model_dump(exclude={"modules", "cross_correlations"})
+    inv = load_inventory()
+    if inv.last_analysis:
+        return inv.last_analysis.model_dump(exclude={"modules", "cross_correlations"})
+    return {"status": "idle"}
+
+
+@app.get("/api/analysis/results")
+async def analysis_results():
+    if _current_analysis and _current_analysis.status in ("done", "error"):
+        return _current_analysis
+    inv = load_inventory()
+    if inv.last_analysis:
+        return inv.last_analysis
+    return AnalysisResult()
+
+
+@app.delete("/api/analysis")
+async def cancel_analysis():
+    global _analysis_cancel
+    _analysis_cancel[0] = True
+    if _current_analysis and _current_analysis.status == "running":
+        _current_analysis.status = "cancelled"
+        _current_analysis.finished_at = datetime.now(timezone.utc).isoformat()
+    return {"ok": True}
+
+
+@app.get("/api/settings")
+async def get_settings():
+    inv = load_inventory()
+    return {
+        "mcp_hub_token": inv.settings.mcp_hub_token,
+        "has_anthropic_key": bool(
+            os.environ.get("ANTHROPIC_API_KEY") or inv.settings.anthropic_api_key
+        ),
+    }
+
+
+@app.put("/api/settings")
+async def update_settings(body: dict):
+    inv = load_inventory()
+    if "mcp_hub_token" in body:
+        inv.settings.mcp_hub_token = str(body["mcp_hub_token"])
+    if body.get("anthropic_api_key"):
+        inv.settings.anthropic_api_key = str(body["anthropic_api_key"])
     save_inventory(inv)
     return {"ok": True}
 
@@ -307,13 +425,35 @@ async def export_report():
     spa_path = Path(__file__).parent.parent / "frontend" / "index.html"
     spa_html = spa_path.read_text(encoding="utf-8")
 
+    # Replace external Tailwind CDN tag with inlined script for offline use
+    tailwind_js = await asyncio.get_event_loop().run_in_executor(None, _fetch_tailwind_inline)
+    if tailwind_js:
+        spa_html = spa_html.replace(
+            '<script src="https://cdn.tailwindcss.com"></script>',
+            f'<script>{tailwind_js}</script>',
+        )
+
+    # Embed analysis results if available
+    analysis_obj: Optional[AnalysisResult] = None
+    if _current_analysis and _current_analysis.status == "done":
+        analysis_obj = _current_analysis
+    else:
+        inv2 = load_inventory()
+        if inv2.last_analysis and inv2.last_analysis.status == "done":
+            analysis_obj = inv2.last_analysis
+    analysis_json = json.dumps(
+        analysis_obj.model_dump() if analysis_obj else {"status": "idle", "modules": [], "cross_correlations": []},
+        ensure_ascii=False, default=str,
+    )
+
     # Build the fetch-interception + embedded-data script injected just before init()
     # This makes the exported HTML fully standalone: no API calls needed.
     inject_js = f"""
 // ── STATIC EXPORT — read-only, no backend required ───────────────────────────
 const _EXPORT_DATA = {{
-  results: {results_json},
-  svg:     {json.dumps(svg_content)},
+  results:  {results_json},
+  svg:      {json.dumps(svg_content)},
+  analysis: {analysis_json},
 }};
 (function () {{
   const _realFetch = window.fetch.bind(window);
@@ -338,6 +478,12 @@ const _EXPORT_DATA = {{
       return Promise.resolve({{ ok: true, json: () => Promise.resolve([]) }});
     if (u.includes('/api/audit/status'))
       return Promise.resolve({{ ok: true, json: () => Promise.resolve({{ status: 'idle' }}) }});
+    if (u.includes('/api/analysis/results'))
+      return Promise.resolve({{ ok: true, json: () => Promise.resolve(_EXPORT_DATA.analysis) }});
+    if (u.includes('/api/analysis/status'))
+      return Promise.resolve({{ ok: true, json: () => Promise.resolve({{ status: _EXPORT_DATA.analysis.status }}) }});
+    if (u.includes('/api/settings'))
+      return Promise.resolve({{ ok: true, json: () => Promise.resolve({{ mcp_hub_token: '', has_anthropic_key: false }}) }});
     return _realFetch(url, opts);
   }};
 

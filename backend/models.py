@@ -1,6 +1,6 @@
-# Version: 1.8.0
+# Version: 1.9.0
 # Date:    2026-06-18
-# Notes:   Add is_syslog_server / is_ntp_server / is_dhcp_server / is_pxe_server to AuditResult
+# Notes:   Add logs collection, AnalysisResult models, InventorySettings
 
 from __future__ import annotations
 from typing import Optional, Literal
@@ -162,6 +162,8 @@ class AuditResult(BaseModel):
     # Live data
     listen_ports: list[ListenPort] = []
     connections: list[NetConnection] = []
+    # Application logs — last 24h, deduplicated, keyed by role name
+    logs: dict[str, str] = {}
 
 
 # ─── Audit run ────────────────────────────────────────────────────────────────
@@ -174,9 +176,45 @@ class AuditRun(BaseModel):
     results: list[AuditResult] = []
 
 
+# ─── Analysis results ─────────────────────────────────────────────────────────
+
+class AnalysisFinding(BaseModel):
+    severity: Literal["CRITICAL", "WARNING", "INFO", "OK"] = "INFO"
+    title: str = ""
+    detail: str = ""
+    recommendation: str = ""
+    servers: list[str] = []
+
+
+class AnalysisModule(BaseModel):
+    role: str
+    servers: list[str] = []
+    summary: str = ""
+    config_findings: list[AnalysisFinding] = []
+    log_findings: list[AnalysisFinding] = []
+
+
+class AnalysisResult(BaseModel):
+    status: Literal["idle", "running", "done", "error", "cancelled"] = "idle"
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    error: Optional[str] = None
+    modules: list[AnalysisModule] = []
+    cross_correlations: list[AnalysisFinding] = []
+
+
+# ─── Inventory settings ────────────────────────────────────────────────────────
+
+class InventorySettings(BaseModel):
+    mcp_hub_token: str = ""
+    anthropic_api_key: str = ""   # encrypted at rest is ideal; for now stored as-is
+
+
 # ─── Inventory file ───────────────────────────────────────────────────────────
 
 class Inventory(BaseModel):
     credentials: list[Credential] = []
     servers: list[Server] = []
     last_audit: Optional[AuditRun] = None
+    last_analysis: Optional[AnalysisResult] = None
+    settings: InventorySettings = Field(default_factory=InventorySettings)

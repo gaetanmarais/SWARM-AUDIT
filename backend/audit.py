@@ -1,6 +1,6 @@
-# Version: 1.4.0
+# Version: 1.5.0
 # Date:    2026-06-18
-# Notes:   Pass is_syslog_server / is_ntp_server / is_dhcp_server / is_pxe_server from audit JSON
+# Notes:   Map logs field (last-24h per-role application logs) from audit JSON
 
 from __future__ import annotations
 import asyncio
@@ -121,6 +121,7 @@ async def audit_server(
                 is_ntp_server=data.get("is_ntp_server", False),
                 is_dhcp_server=data.get("is_dhcp_server", False),
                 is_pxe_server=data.get("is_pxe_server", False),
+                logs=data.get("logs", {}),
             )
 
     except asyncio.TimeoutError:
