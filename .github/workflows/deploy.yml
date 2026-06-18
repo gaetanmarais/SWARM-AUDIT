@@ -19,4 +19,6 @@ jobs:
             set -e
             cd ${{ secrets.DEPLOY_PATH }}
             git pull --ff-only
-            docker compose up -d --build
+            podman compose down
+            podman compose build --no-cache
+            podman compose up -d
