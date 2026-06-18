@@ -1,7 +1,7 @@
-# Version: 6.2.0
+# Version: 6.3.0
 # Date:    2026-06-18
-# Notes:   SVG responsive (width:100%), icons larger (scale=1.75), badges inside tile
-#          with short inner-wire, IP suffix based on mask, layer bands lighter.
+# Notes:   Fix ES/storage node dedup — audited_ips now includes all NIC IPs so that
+#          a node audited via public IP is not duplicated when rediscovered on private net.
 
 from __future__ import annotations
 import html as _html_mod
@@ -496,7 +496,14 @@ def generate_svg(results: list[AuditResult]) -> str:
 
     # ── Discovered storage nodes — deduplicate by IP, prefer health_report ────
     swarmctl_lookup: dict[str, DiscoveredStorageNode] = {}  # server_id → sn
-    audited_ips = {r.server_ip for r in results}
+    # Include ALL known IPs (management + every NIC) so that a node audited via its
+    # public IP is not duplicated when rediscovered via its private storage-network IP.
+    audited_ips: set[str] = set()
+    for r in results:
+        audited_ips.add(r.server_ip)
+        for ni in r.network_interfaces:
+            if ni.ip and ":" not in ni.ip and ni.ip not in ("127.0.0.1",):
+                audited_ips.add(ni.ip)
     best_sn: dict[str, DiscoveredStorageNode] = {}  # ip → best DiscoveredStorageNode
 
     for r in results:
