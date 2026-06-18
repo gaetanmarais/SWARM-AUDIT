@@ -1,12 +1,14 @@
-# Version: 1.6.0
+# Version: 1.7.0
 # Date:    2026-06-18
-# Notes:   export-report: single self-contained index.html with embedded data + fetch interception
+# Notes:   SWARM_DATA_DIR env var — mounts a directory instead of a file to avoid
+#          Docker creating inventory.json as a directory on first run.
 
 from __future__ import annotations
 import asyncio
 import io
 import json
 import logging
+import os
 import re
 import zipfile
 import uuid
@@ -32,9 +34,11 @@ from health_report import generate_health_report_html
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
-INVENTORY_FILE = Path(__file__).parent.parent / "inventory.json"
-FRONTEND_DIR   = Path(__file__).parent.parent / "frontend"
-DUMPS_DIR      = Path(__file__).parent.parent / "dumps"
+_APP_ROOT      = Path(__file__).parent.parent
+DATA_DIR       = Path(os.environ.get("SWARM_DATA_DIR", _APP_ROOT / "data"))
+INVENTORY_FILE = DATA_DIR / "inventory.json"
+FRONTEND_DIR   = _APP_ROOT / "frontend"
+DUMPS_DIR      = DATA_DIR / "dumps"
 
 app = FastAPI(title="ARCIS-SWARM", version="1.0.0")
 app.add_middleware(
@@ -51,12 +55,16 @@ app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 # ─── Inventory persistence ────────────────────────────────────────────────────
 
 def load_inventory() -> Inventory:
-    if INVENTORY_FILE.exists():
-        return Inventory.model_validate_json(INVENTORY_FILE.read_text())
+    if INVENTORY_FILE.is_file():
+        try:
+            return Inventory.model_validate_json(INVENTORY_FILE.read_text())
+        except Exception:
+            log.warning("inventory.json unreadable — returning empty inventory")
     return Inventory()
 
 
 def save_inventory(inv: Inventory) -> None:
+    INVENTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
     INVENTORY_FILE.write_text(inv.model_dump_json(indent=2))
 
 

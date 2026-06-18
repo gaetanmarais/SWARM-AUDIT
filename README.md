@@ -25,14 +25,11 @@ Connects via SSH to each server, runs a non-destructive Bash audit script, and p
 git clone https://github.com/gaetanmarais/SWARM-AUDIT.git
 cd SWARM-AUDIT
 
-# Create your inventory from the sample
-cp inventory.sample.json inventory.json
-
-# Build and run
+# Build and run — no pre-configuration needed
 docker compose up -d
 ```
 
-Open **http://localhost:8099**
+Open **http://localhost:8099** — the inventory is created automatically on first save.
 
 ---
 
@@ -41,12 +38,13 @@ Open **http://localhost:8099**
 ```bash
 docker build -t swarm-audit .
 
+mkdir -p data   # persistent data directory (inventory + dumps)
+
 docker run -d \
   --name swarm-audit \
   --restart unless-stopped \
   -p 8099:8000 \
-  -v "$(pwd)/inventory.json:/app/inventory.json" \
-  -v "$(pwd)/dumps:/app/dumps" \
+  -v "$(pwd)/data:/app/data" \
   swarm-audit
 ```
 
@@ -54,40 +52,26 @@ docker run -d \
 
 ## Configuration
 
-### 1. inventory.json
+### 1. Data directory
 
-Copy `inventory.sample.json` to `inventory.json` before first run. The app reads and writes this file at runtime.
+All runtime data lives in `./data/` on the host (mapped to `/app/data` in the container):
 
-The file is **excluded from git** (`.gitignore`) — it may contain SSH credentials.
+| File | Purpose |
+|---|---|
+| `data/inventory.json` | SSH credentials + server list (created on first save) |
+| `data/dumps/*.json` | Raw audit JSON per node (created after each audit) |
 
-Structure:
+The entire `data/` directory is excluded from git — it contains SSH credentials.
 
-```json
-{
-  "credentials": [
-    {
-      "id": "cred-default",
-      "name": "root-ssh",
-      "username": "root",
-      "password": "changeme",
-      "private_key": null,
-      "port": 22,
-      "is_default": true
-    }
-  ],
-  "servers": [
-    {
-      "id": "srv-01",
-      "name": "haproxy-01",
-      "ip": "10.0.0.1",
-      "credential_id": null
-    }
-  ]
-}
+**The directory is created automatically** when you first save a credential or server in the UI. There is nothing to copy or pre-create.
+
+If you have an existing `inventory.json`, place it at `data/inventory.json` before starting:
+
+```bash
+mkdir -p data
+cp inventory.sample.json data/inventory.json   # or your own file
+docker compose up -d
 ```
-
-- `credential_id: null` — uses the credential flagged `is_default: true`
-- `private_key` — paste the full PEM key as a single string with `\n` separators, or manage via the UI
 
 ### 2. Port
 
@@ -98,16 +82,11 @@ ports:
   - "8099:8000"   # change 8099 to any free port
 ```
 
-### 3. Data persistence
+### 3. Environment variables
 
-Two paths are volume-mounted:
-
-| Path (host) | Container | Purpose |
+| Variable | Default | Description |
 |---|---|---|
-| `./inventory.json` | `/app/inventory.json` | Credential + server config |
-| `./dumps/` | `/app/dumps/` | Raw audit JSON per node |
-
-The `dumps/` directory is created automatically on first audit.
+| `SWARM_DATA_DIR` | `/app/data` | Path to the data directory inside the container |
 
 ---
 

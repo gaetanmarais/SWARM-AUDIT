@@ -1,8 +1,8 @@
-FROM debian:12-slim
+# Version: 1.1.0
+# Date:    2026-06-18
+# Notes:   /app/data volume dir for inventory + dumps; SWARM_DATA_DIR env var
 
-# Version: 1.0.0
-# Date:    2026-06-17
-# Notes:   ARCIS-SWARM container — Python 3.12 FastAPI + audit engine
+FROM debian:12-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-venv python3-pip \
@@ -19,11 +19,13 @@ COPY backend/  /app/backend/
 COPY frontend/ /app/frontend/
 COPY scripts/  /app/scripts/
 
-RUN chmod +x /app/scripts/audit.sh
+RUN chmod +x /app/scripts/audit.sh \
+    && mkdir -p /app/data/dumps
 
 EXPOSE 8000
 
 ENV PYTHONPATH=/app/backend
+ENV SWARM_DATA_DIR=/app/data
 
 CMD ["/app/venv/bin/uvicorn", "main:app", \
      "--host", "0.0.0.0", "--port", "8000", \
