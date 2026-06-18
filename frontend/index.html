@@ -306,12 +306,11 @@
           <p class="text-xs text-slate-500 mt-1">Overridden by CLAUDE_HUB_MCP_TOKEN env var.</p>
         </div>
         <div>
-          <label class="block text-xs text-slate-400 mb-1">Anthropic API Key</label>
+          <label class="block text-xs text-slate-400 mb-1">Claude Hub MCP URL</label>
           <div class="flex gap-2">
-            <input id="settings-anthropic-key" type="password" class="input text-xs font-mono flex-1" placeholder="sk-ant-…"/>
-            <span id="settings-anthropic-status" class="text-xs self-center text-slate-500"></span>
+            <input id="settings-mcp-url" type="text" class="input text-xs font-mono flex-1" placeholder="https://…/mcp"/>
           </div>
-          <p class="text-xs text-slate-500 mt-1">Overridden by ANTHROPIC_API_KEY env var. Leave blank if already set.</p>
+          <p class="text-xs text-slate-500 mt-1">Overridden by CLAUDE_HUB_MCP_URL env var.</p>
         </div>
       </div>
     </div>
@@ -2877,9 +2876,9 @@ function _renderSettingsPanel() {
         <p class="text-xs text-slate-500 mt-1">Overridden by CLAUDE_HUB_MCP_TOKEN env var.</p>
       </div>
       <div>
-        <label class="block text-xs text-slate-400 mb-1">Anthropic API Key</label>
-        <input id="settings-anthropic-key-2" type="password" class="input text-xs font-mono" placeholder="sk-ant-…"/>
-        <p class="text-xs text-slate-500 mt-1">Overridden by ANTHROPIC_API_KEY env var. Leave blank if already set server-side.</p>
+        <label class="block text-xs text-slate-400 mb-1">Claude Hub MCP URL</label>
+        <input id="settings-mcp-url-2" type="text" class="input text-xs font-mono" placeholder="https://…/mcp"/>
+        <p class="text-xs text-slate-500 mt-1">Overridden by CLAUDE_HUB_MCP_URL env var.</p>
       </div>
       <div class="flex items-center gap-3">
         <button onclick="saveSettings(true)" class="btn btn-primary text-xs">Save Settings</button>
@@ -2907,11 +2906,10 @@ async function loadSettingsValues() {
     const t2 = document.getElementById('settings-mcp-token-2');
     if (t1) t1.value = d.mcp_hub_token || '';
     if (t2) t2.value = d.mcp_hub_token || '';
-    const keyMsg = d.has_anthropic_key ? 'API key configured' : 'No API key set';
-    const s1 = document.getElementById('settings-anthropic-status');
-    const s2 = document.getElementById('settings-key-status');
-    if (s1) s1.textContent = keyMsg;
-    if (s2) s2.textContent = keyMsg;
+    const u1 = document.getElementById('settings-mcp-url');
+    const u2 = document.getElementById('settings-mcp-url-2');
+    if (u1) u1.value = d.mcp_hub_url || '';
+    if (u2) u2.value = d.mcp_hub_url || '';
   } catch(e) {}
 }
 
@@ -2919,13 +2917,13 @@ async function saveSettings(fromSubTab) {
   const token = fromSubTab
     ? document.getElementById('settings-mcp-token-2')?.value
     : document.getElementById('settings-mcp-token')?.value;
-  const key = fromSubTab
-    ? document.getElementById('settings-anthropic-key-2')?.value
-    : document.getElementById('settings-anthropic-key')?.value;
+  const url = fromSubTab
+    ? document.getElementById('settings-mcp-url-2')?.value
+    : document.getElementById('settings-mcp-url')?.value;
 
   const body = {};
   if (token !== undefined) body.mcp_hub_token = token;
-  if (key) body.anthropic_api_key = key;
+  if (url !== undefined) body.mcp_hub_url = url;
 
   const r = await fetch(API+'/api/settings', {
     method: 'PUT',

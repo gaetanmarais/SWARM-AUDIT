@@ -1,6 +1,6 @@
-# Version: 1.0.0
+# Version: 2.0.0
 # Date:    2026-06-18
-# Notes:   Post-audit AI analysis: MCP RAG (multiple Swarm skills) + Claude API
+# Notes:   Switch from direct Anthropic SDK to Hub MCP ask_claude tool
 
 from __future__ import annotations
 import asyncio
@@ -13,11 +13,9 @@ from models import AuditResult, AnalysisResult, AnalysisModule, AnalysisFinding
 
 log = logging.getLogger(__name__)
 
-MCP_URL = "https://claude-ws-gmarais.duckdns.org/mcp"
 CLAUDE_MODEL = "claude-sonnet-4-6"
 
 # Multiple targeted queries to hit the various Swarm skill/RAG collections
-# (swarm, swarm-elasticsearch, swarm-gateway, swarm-haproxy-ssl, swarm-storage-nodes, etc.)
 RAG_QUERIES = [
     "HAProxy DataCore Swarm load balancer maxconn TCP connection limits backend server configuration",
     "Content Gateway DataCore Swarm HTTP performance tuning connection pool configuration parameters",
@@ -38,7 +36,7 @@ Analyze the infrastructure audit data below and return a structured JSON analysi
 Rules:
 - Return ONLY valid JSON — no text, no markdown, no code fences
 - Severity: CRITICAL (immediate risk), WARNING (should fix), INFO (observation/best practice), OK (positive/correct)
-- For each finding: cite actual values from the data (parameter names, thresholds, counts)
+- For each finding: cite actual values from the audit data (parameter names, thresholds, counts)
 - Cross-correlations: identify mismatches that span components (e.g. HAProxy maxconn=2000 but Gateway allows 8000 connections — the bottleneck shifts to HAProxy; ES JVM heap vs total RAM ratio)
 - Log analysis: identify error patterns, frequencies, root causes; correlate log errors with config issues
 - Cover ALL servers and ALL detected roles — include at least 2 findings per module
@@ -82,7 +80,7 @@ RESPONSE_SCHEMA = """{
 }"""
 
 
-def _mcp_call_sync(token: str, tool: str, arguments: dict) -> dict:
+def _mcp_call_sync(mcp_url: str, token: str, tool: str, arguments: dict) -> dict:
     """Synchronous MCP tool call via urllib (no extra deps)."""
     payload = json.dumps({
         "jsonrpc": "2.0",
@@ -91,7 +89,7 @@ def _mcp_call_sync(token: str, tool: str, arguments: dict) -> dict:
         "params": {"name": tool, "arguments": arguments},
     }).encode()
     req = urllib.request.Request(
-        MCP_URL,
+        mcp_url,
         data=payload,
         headers={
             "Authorization": f"Bearer {token}",
@@ -100,7 +98,7 @@ def _mcp_call_sync(token: str, tool: str, arguments: dict) -> dict:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
+        with urllib.request.urlopen(req, timeout=120) as resp:
             return json.loads(resp.read())
     except Exception as exc:
         log.warning("MCP call %s failed: %s", tool, exc)
@@ -116,6 +114,27 @@ def _extract_rag_text(response: dict) -> str:
                 item.get("text", "") for item in content if isinstance(item, dict)
             )
         return str(response.get("result", ""))
+    except Exception:
+        return ""
+
+
+def _extract_ask_claude_answer(response: dict) -> str:
+    """Extract the answer text from an ask_claude MCP response."""
+    try:
+        content = response.get("result", {}).get("content", [])
+        if isinstance(content, list):
+            for item in content:
+                if isinstance(item, dict) and item.get("type") == "text":
+                    text = item.get("text", "")
+                    # ask_claude returns a JSON-encoded dict with "answer" key
+                    try:
+                        parsed = json.loads(text)
+                        if isinstance(parsed, dict) and "answer" in parsed:
+                            return parsed["answer"]
+                    except Exception:
+                        pass
+                    return text
+        return ""
     except Exception:
         return ""
 
@@ -211,38 +230,39 @@ def _server_summary(r: AuditResult) -> str:
 
 async def run_analysis(
     results: list[AuditResult],
+    mcp_url: str,
     mcp_token: str,
-    anthropic_key: str,
     cancel_flag: list[bool],
 ) -> AnalysisResult:
     """
-    Run AI analysis on audit results.
+    Run AI analysis on audit results via Hub MCP ask_claude tool.
     cancel_flag[0] = True → abort with CancelledError.
     """
-    import anthropic as _anthropic  # lazy import — not in default deps
+    if not mcp_token:
+        raise ValueError("No MCP token configured — cannot run AI analysis")
+    if not mcp_url:
+        raise ValueError("No MCP URL configured — cannot run AI analysis")
 
     loop = asyncio.get_event_loop()
 
     # ── 1. RAG context from Hub MCP (multiple Swarm skills) ─────────────────
     rag_parts: list[str] = []
-    if mcp_token:
-        log.info("Fetching Swarm RAG context (%d queries)…", len(RAG_QUERIES))
-        seen: set[str] = set()
-        for query in RAG_QUERIES:
-            if cancel_flag[0]:
-                raise asyncio.CancelledError()
-            resp = await loop.run_in_executor(
-                None, _mcp_call_sync, mcp_token, "search_workspace_rag",
-                {"query": query, "k": 5},
-            )
-            text = _extract_rag_text(resp).strip()
-            # Deduplicate near-identical results
-            key = text[:200]
-            if text and key not in seen:
-                seen.add(key)
-                rag_parts.append(f"[{query}]\n{text}")
-        log.info("RAG: %d unique results, ~%d chars", len(rag_parts),
-                 sum(len(p) for p in rag_parts))
+    log.info("Fetching Swarm RAG context (%d queries)…", len(RAG_QUERIES))
+    seen: set[str] = set()
+    for query in RAG_QUERIES:
+        if cancel_flag[0]:
+            raise asyncio.CancelledError()
+        resp = await loop.run_in_executor(
+            None, _mcp_call_sync, mcp_url, mcp_token, "search_workspace_rag",
+            {"query": query, "k": 5},
+        )
+        text = _extract_rag_text(resp).strip()
+        key = text[:200]
+        if text and key not in seen:
+            seen.add(key)
+            rag_parts.append(f"[{query}]\n{text}")
+    log.info("RAG: %d unique results, ~%d chars", len(rag_parts),
+             sum(len(p) for p in rag_parts))
 
     if cancel_flag[0]:
         raise asyncio.CancelledError()
@@ -250,10 +270,9 @@ async def run_analysis(
     # ── 2. Build prompt ──────────────────────────────────────────────────────
     servers_text = "\n\n".join(_server_summary(r) for r in results)
 
-    prompt = "INFRASTRUCTURE AUDIT DATA:\n" + servers_text
+    prompt = SYSTEM_PROMPT + "\n\nINFRASTRUCTURE AUDIT DATA:\n" + servers_text
 
     if rag_parts:
-        # Cap RAG at 14 000 chars to keep total prompt manageable
         rag_text = "\n\n".join(rag_parts)[:14000]
         prompt += (
             "\n\nSWARM KNOWLEDGE BASE (best practices / known issues "
@@ -274,24 +293,28 @@ Important:
 - At least 2 findings per module; positive OK findings are valuable
 """
 
-    # ── 3. Call Claude API ───────────────────────────────────────────────────
-    log.info("Calling Claude API (model=%s, ~%d chars)…", CLAUDE_MODEL, len(prompt))
-
-    client = _anthropic.AsyncAnthropic(api_key=anthropic_key)
+    # ── 3. Call Claude via Hub MCP ask_claude ────────────────────────────────
+    log.info("Calling ask_claude via MCP (url=%s, model=%s, ~%d chars)…",
+             mcp_url, CLAUDE_MODEL, len(prompt))
 
     if cancel_flag[0]:
         raise asyncio.CancelledError()
 
-    response = await client.messages.create(
-        model=CLAUDE_MODEL,
-        max_tokens=4096,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": prompt}],
+    resp = await loop.run_in_executor(
+        None, _mcp_call_sync, mcp_url, mcp_token, "ask_claude",
+        {"prompt": prompt, "model": CLAUDE_MODEL},
     )
 
-    raw_text: str = response.content[0].text if response.content else "{}"
+    if resp.get("result", {}).get("isError"):
+        err_content = resp.get("result", {}).get("content", [])
+        err_text = err_content[0].get("text", "unknown error") if err_content else "unknown error"
+        raise ValueError(f"ask_claude returned error: {err_text}")
 
-    # Strip markdown code fences if Claude adds them despite instructions
+    raw_text = _extract_ask_claude_answer(resp)
+    if not raw_text:
+        raise ValueError("ask_claude returned empty response")
+
+    # Strip markdown code fences if present despite instructions
     for fence_open in ("```json\n", "```json", "```\n", "```"):
         if fence_open in raw_text:
             raw_text = raw_text.split(fence_open, 1)[1]

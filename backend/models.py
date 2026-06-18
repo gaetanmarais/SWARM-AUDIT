@@ -1,6 +1,6 @@
-# Version: 1.9.0
+# Version: 2.0.0
 # Date:    2026-06-18
-# Notes:   Add logs collection, AnalysisResult models, InventorySettings
+# Notes:   Replace anthropic_api_key with mcp_hub_url in InventorySettings
 
 from __future__ import annotations
 from typing import Optional, Literal
@@ -206,8 +206,8 @@ class AnalysisResult(BaseModel):
 # ─── Inventory settings ────────────────────────────────────────────────────────
 
 class InventorySettings(BaseModel):
+    mcp_hub_url: str = "https://claude-ws-gmarais.duckdns.org/mcp"
     mcp_hub_token: str = ""
-    anthropic_api_key: str = ""   # encrypted at rest is ideal; for now stored as-is
 
 
 # ─── Inventory file ───────────────────────────────────────────────────────────
