@@ -6,9 +6,10 @@ services:
     ports:
       - "8099:8000"
     volumes:
-      # Mount a directory — never a bare file, to avoid Docker creating a dir
+      # Mount a directory — never a bare file, to avoid Docker/Podman creating a dir
       # on first run when the file doesn't yet exist.
-      - ./data:/app/data
+      # :Z relabels the host dir for SELinux (required on RHEL/Fedora/Podman hosts)
+      - ./data:/app/data:Z
     environment:
       - PYTHONUNBUFFERED=1
       - SWARM_DATA_DIR=/app/data
