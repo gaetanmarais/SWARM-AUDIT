@@ -1,11 +1,12 @@
-# Version: 2.0.0
+# Version: 2.1.0
 # Date:    2026-06-18
-# Notes:   Switch from direct Anthropic SDK to Hub MCP ask_claude tool
+# Notes:   Add exponential backoff retry on ask_claude 429 rate limit errors
 
 from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 import urllib.request
 from typing import Optional
 
@@ -98,11 +99,49 @@ def _mcp_call_sync(mcp_url: str, token: str, tool: str, arguments: dict) -> dict
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        with urllib.request.urlopen(req, timeout=180) as resp:
             return json.loads(resp.read())
     except Exception as exc:
         log.warning("MCP call %s failed: %s", tool, exc)
         return {}
+
+
+def _ask_claude_with_retry(
+    mcp_url: str, token: str, arguments: dict, max_attempts: int = 4
+) -> dict:
+    """Call ask_claude with exponential backoff on 429 rate-limit errors."""
+    # Delays: 30s, 60s, 120s between attempts
+    waits = [30, 60, 120]
+    for attempt in range(max_attempts):
+        resp = _mcp_call_sync(mcp_url, token, "ask_claude", arguments)
+        if not resp:
+            if attempt < max_attempts - 1:
+                wait = waits[min(attempt, len(waits) - 1)]
+                log.warning("ask_claude empty response (attempt %d/%d), retrying in %ds…",
+                            attempt + 1, max_attempts, wait)
+                time.sleep(wait)
+                continue
+            return resp
+
+        # Check for 429 in the MCP error content
+        content = resp.get("result", {}).get("content", [])
+        err_text = ""
+        if isinstance(content, list) and content:
+            err_text = content[0].get("text", "")
+        is_rate_limit = (
+            "429" in err_text
+            or "rate_limit_error" in err_text
+            or resp.get("result", {}).get("isError") and "429" in str(resp)
+        )
+        if is_rate_limit and attempt < max_attempts - 1:
+            wait = waits[min(attempt, len(waits) - 1)]
+            log.warning("ask_claude hit 429 rate limit (attempt %d/%d), waiting %ds…",
+                        attempt + 1, max_attempts, wait)
+            time.sleep(wait)
+            continue
+
+        return resp
+    return {}
 
 
 def _extract_rag_text(response: dict) -> str:
@@ -293,7 +332,7 @@ Important:
 - At least 2 findings per module; positive OK findings are valuable
 """
 
-    # ── 3. Call Claude via Hub MCP ask_claude ────────────────────────────────
+    # ── 3. Call Claude via Hub MCP ask_claude (with 429 retry) ──────────────
     log.info("Calling ask_claude via MCP (url=%s, model=%s, ~%d chars)…",
              mcp_url, CLAUDE_MODEL, len(prompt))
 
@@ -301,8 +340,8 @@ Important:
         raise asyncio.CancelledError()
 
     resp = await loop.run_in_executor(
-        None, _mcp_call_sync, mcp_url, mcp_token, "ask_claude",
-        {"prompt": prompt, "model": CLAUDE_MODEL},
+        None, _ask_claude_with_retry,
+        mcp_url, mcp_token, {"prompt": prompt, "model": CLAUDE_MODEL},
     )
 
     if resp.get("result", {}).get("isError"):
