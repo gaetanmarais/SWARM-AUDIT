@@ -312,10 +312,10 @@ async def _do_analysis(results: list[AuditResult]) -> None:
     except asyncio.CancelledError:
         _current_analysis.status = "cancelled"
         _current_analysis.finished_at = datetime.now(timezone.utc).isoformat()
-    except Exception:
+    except Exception as exc:
         log.exception("AI analysis failed")
         _current_analysis.status = "error"
-        _current_analysis.error = "Analysis failed — check backend logs"
+        _current_analysis.error = str(exc)
         _current_analysis.finished_at = datetime.now(timezone.utc).isoformat()
 
 
