@@ -1,0 +1,2634 @@
+<!DOCTYPE html>
+<!--
+  Version: 1.11.0
+  Date:    2026-06-18
+  Notes:   SVG tile redesign: NIC chips, role icon, buttons in header, no pkg/OS in tile; OS → conn-modal
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ARCIS-SWARM</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  /* ─── CSS variables — dark (default) ───────────────────────────────────────── */
+  :root {
+    --bg:      #0c1524;
+    --bg-card: #162032;
+    --bg-in:   #0c1524;
+    --bg-gh:   #1e3351;
+    --bg-gh-h: #253d61;
+    --bd:      #1e3351;
+    --bd-sub:  #2d4a6b;
+    --fg:      #e2e8f0;
+    --fg-dim:  #64748b;
+    --fg-gh:   #93c5fd;
+  }
+  /* ─── Light mode overrides — DataCore report style ─────────────────────────── */
+  body.light {
+    --bg:      #f0f4f8;
+    --bg-card: #ffffff;
+    --bg-in:   #f8fafc;
+    --bg-gh:   #dbeafe;
+    --bg-gh-h: #bfdbfe;
+    --bd:      #dbeafe;
+    --bd-sub:  #93c5fd;
+    --fg:      #0f172a;
+    --fg-dim:  #475569;
+    --fg-gh:   #1e40af;
+  }
+
+  body { background:var(--bg); color:var(--fg); font-family:'Inter','Segoe UI',system-ui,-apple-system,sans-serif; font-size:13px; }
+  .card { background:var(--bg-card); border:1px solid var(--bd); box-shadow:0 4px 16px rgba(0,0,0,0.35); }
+  .btn { @apply px-3 py-1.5 rounded text-sm font-medium transition-colors; }
+  .btn-primary { background: linear-gradient(135deg, #2563eb, #1d4ed8); color:#fff; box-shadow:0 2px 8px rgba(37,99,235,0.4); }
+  .btn-primary:hover { background: linear-gradient(135deg, #1d4ed8, #1e40af); }
+  .btn-danger  { background:#ef4444; color:#fff; }
+  .btn-danger:hover  { background:#dc2626; }
+  .btn-ghost   { background:var(--bg-gh); color:var(--fg-gh); border:1px solid var(--bd-sub); }
+  .btn-ghost:hover   { background:var(--bg-gh-h); }
+  .input { background:var(--bg-in); border:1px solid var(--bd-sub); color:var(--fg);
+           padding:6px 10px; border-radius:6px; width:100%; outline:none; }
+  .input:focus { border-color:#3b82f6; }
+  .role-badge { padding:2px 8px; border-radius:12px; font-size:11px; font-weight:600; color:#fff; }
+  .tab { cursor:pointer; padding:8px 16px; border-bottom:2px solid transparent; color:var(--fg-dim); font-size:13px; }
+  .tab.active { border-color:#3b82f6; color:var(--fg); }
+  #diagram-container { cursor: grab; height: calc(100vh - 160px); overflow: auto; }
+  #diagram-container svg { display:block; max-width:100%; height:auto; }
+  .spinner { animation:spin 1s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .pulse { animation:pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+
+  table { border-collapse:collapse; }
+  th { font-weight:600; letter-spacing:.04em; }
+  tbody tr:hover { background:rgba(255,255,255,0.03); }
+  body.light tbody tr:hover { background:rgba(0,0,0,0.03); }
+
+  /* ─── Tailwind overrides for light mode ─────────────────────────────────────── */
+  body.light .text-slate-200 { color:#1a202c !important; }
+  body.light .text-slate-300 { color:#2d3748 !important; }
+  body.light .text-slate-400 { color:#4a5568 !important; }
+  body.light .text-slate-500 { color:#718096 !important; }
+  body.light .border-slate-700 { border-color:#cbd5e0 !important; }
+  body.light .border-slate-800 { border-color:#dbeafe !important; }
+  body.light header, body.light .border-slate-800 { border-color:#dbeafe !important; }
+  body.light .border-b { border-color: var(--bd) !important; }
+  body.light h1 { color: #1d4ed8 !important; }
+  body.light .text-blue-400 { color:#2b6cb0 !important; }
+  body.light .bg-slate-950 { background:#f0f4f8 !important; }
+  body.light .bg-black\/70 { background:rgba(100,100,100,.55) !important; }
+  body.light .bg-black\/60 { background:rgba(100,100,100,.45) !important; }
+  body.light .bg-blue-900  { background:#bee3f8 !important; }
+  body.light .text-blue-300 { color:#2c5282 !important; }
+  body.light .bg-green-900 { background:#c6f6d5 !important; }
+  body.light .text-green-300 { color:#276749 !important; }
+  body.light .bg-red-900   { background:#fed7d7 !important; }
+  body.light .text-red-300  { color:#c53030 !important; }
+  body.light .text-red-400  { color:#c53030 !important; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- Header -->
+<div class="border-b border-slate-800 px-6 py-4 flex items-center justify-between">
+  <div>
+    <h1 class="text-xl font-bold tracking-widest" style="color:#60a5fa">ARCIS-SWARM</h1>
+    <p class="text-xs mt-0.5" style="color:var(--fg-dim);">Infrastructure Audit &amp; Role Mapping</p>
+  </div>
+  <div class="flex items-center gap-3">
+    <!-- Theme toggle -->
+    <button id="theme-toggle" onclick="toggleTheme()"
+      class="btn btn-ghost flex items-center gap-1.5 text-xs" title="Toggle light/dark mode">
+      <!-- moon: shown in dark mode -->
+      <svg id="theme-moon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M21 12.79A9 9 0 1111.21 3a7 7 0 009.79 9.79z"/>
+      </svg>
+      <!-- sun: shown in light mode -->
+      <svg id="theme-sun" class="w-4 h-4 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M12 3v1m0 16v1m8.66-9H21M3 12H2m15.07-6.07l-.71.71M6.64 17.36l-.71.71M17.36 17.36l.71.71M6.64 6.64l.71.71M12 8a4 4 0 100 8 4 4 0 000-8z"/>
+      </svg>
+    </button>
+    <div id="audit-status-badge" class="hidden text-xs px-3 py-1 rounded-full bg-slate-800 text-slate-400"></div>
+    <!-- Health Report -->
+    <a href="/api/health-report" target="_blank" id="health-report-btn"
+       class="btn btn-ghost flex items-center gap-1.5 text-xs hidden">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+      </svg>
+      Health Report
+    </a>
+    <!-- Download Report (ZIP: SVG + HTML, no credentials) -->
+    <a href="/api/export-report" download="arcis-swarm-report.zip"
+       class="btn btn-ghost flex items-center gap-1.5 text-xs"
+       title="Télécharger le rapport (SVG + HTML) — sans inventaire ni credentials">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+      </svg>
+      Download Report
+    </a>
+    <button onclick="clearAudit()" id="clear-btn"
+      class="btn btn-ghost flex items-center gap-1.5 text-xs"
+      title="Clear previous audit results">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+      </svg>
+      Clear
+    </button>
+    <button onclick="triggerAudit()" id="audit-btn"
+      class="btn btn-primary flex items-center gap-2">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/>
+      </svg>
+      Run Audit
+    </button>
+  </div>
+</div>
+
+<!-- Tabs -->
+<div class="border-b border-slate-800 px-6 flex gap-0">
+  <div class="tab active" onclick="showTab('diagram')" id="tab-diagram">Diagram</div>
+  <div class="tab" onclick="showTab('results')" id="tab-results">Audit Results</div>
+  <div class="tab" onclick="showTab('servers')" id="tab-servers">Servers</div>
+  <div class="tab" onclick="showTab('credentials')" id="tab-credentials">Credentials</div>
+</div>
+
+<div class="p-6 max-w-screen-2xl mx-auto">
+
+  <!-- ── DIAGRAM TAB ── -->
+  <div id="panel-diagram">
+    <div class="flex items-center justify-between gap-2 mb-2" id="diagram-toolbar" style="display:none!important">
+      <!-- Zoom controls -->
+      <div class="flex items-center gap-1">
+        <button onclick="svgZoomStep(-0.15)" class="btn btn-ghost text-xs px-2 py-1" title="Zoom out">−</button>
+        <span id="zoom-label" class="text-xs text-slate-400 w-10 text-center">100%</span>
+        <button onclick="svgZoomStep(+0.15)" class="btn btn-ghost text-xs px-2 py-1" title="Zoom in">+</button>
+        <button onclick="svgZoomReset()" class="btn btn-ghost text-xs" title="Reset zoom">⊙</button>
+      </div>
+      <a href="/api/audit/export" target="_blank"
+         class="btn btn-ghost flex items-center gap-1.5 text-xs"
+         title="Télécharger le JSON complet du dernier audit">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+        </svg>
+        Export JSON
+      </a>
+    </div>
+    <div id="diagram-container" class="card rounded-xl p-4 overflow-auto min-h-64">
+      <p class="text-slate-500 text-sm">Run an audit to generate the infrastructure diagram.</p>
+    </div>
+  </div>
+
+  <!-- ── RESULTS TAB ── -->
+  <div id="panel-results" class="hidden">
+    <div id="results-list" class="space-y-4"></div>
+  </div>
+
+  <!-- ── SERVERS TAB ── -->
+  <div id="panel-servers" class="hidden">
+    <div class="flex justify-between items-center mb-4">
+      <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider">Server Inventory</h2>
+      <div class="flex items-center gap-2">
+        <button onclick="exportConfig()" class="btn btn-ghost flex items-center gap-1.5 text-xs"
+          title="Export servers &amp; credential profiles (no secrets)">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+          </svg>
+          Export Config
+        </button>
+        <label class="btn btn-ghost flex items-center gap-1.5 text-xs cursor-pointer"
+          title="Import servers &amp; credential profiles">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+          </svg>
+          Import
+          <input type="file" accept=".json" class="hidden" onchange="importConfig(event)"/>
+        </label>
+        <button onclick="openServerModal()" class="btn btn-primary text-xs">+ Add Server</button>
+      </div>
+    </div>
+    <div class="card rounded-xl overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="border-b border-slate-700">
+          <tr class="text-xs text-slate-500 uppercase">
+            <th class="text-left px-4 py-3">Name</th>
+            <th class="text-left px-4 py-3">IP</th>
+            <th class="text-left px-4 py-3">Credential</th>
+            <th class="px-4 py-3"></th>
+          </tr>
+        </thead>
+        <tbody id="servers-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── CREDENTIALS TAB ── -->
+  <div id="panel-credentials" class="hidden">
+    <div class="flex justify-between items-center mb-4">
+      <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider">SSH Credentials</h2>
+      <div class="flex items-center gap-2">
+        <button onclick="exportConfig()" class="btn btn-ghost flex items-center gap-1.5 text-xs"
+          title="Export servers &amp; credential profiles (no secrets)">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+          </svg>
+          Export Config
+        </button>
+        <label class="btn btn-ghost flex items-center gap-1.5 text-xs cursor-pointer"
+          title="Import servers &amp; credential profiles">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+          </svg>
+          Import
+          <input type="file" accept=".json" class="hidden" onchange="importConfig(event)"/>
+        </label>
+        <button onclick="openCredModal()" class="btn btn-primary text-xs">+ Add Credential</button>
+      </div>
+    </div>
+    <div class="card rounded-xl overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="border-b border-slate-700">
+          <tr class="text-xs text-slate-500 uppercase">
+            <th class="text-left px-4 py-3">Profile Name</th>
+            <th class="text-left px-4 py-3">User</th>
+            <th class="text-left px-4 py-3">Port</th>
+            <th class="text-left px-4 py-3">Auth</th>
+            <th class="text-left px-4 py-3">Default</th>
+            <th class="px-4 py-3"></th>
+          </tr>
+        </thead>
+        <tbody id="credentials-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── NODE DETAIL MODAL ── -->
+<div id="conn-modal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-50" onclick="closeConnModal(event)">
+  <div class="card rounded-xl w-full max-w-2xl max-h-[80vh] flex flex-col" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between px-5 py-3 border-b border-slate-700">
+      <div>
+        <h3 class="font-semibold text-slate-200" id="conn-modal-title">Node</h3>
+        <p class="text-xs text-slate-400 font-mono" id="conn-modal-subtitle"></p>
+        <p class="text-xs text-slate-600 mt-0.5" id="conn-modal-os"></p>
+      </div>
+      <button onclick="closeConnModal()" class="text-slate-500 hover:text-slate-200 text-xl leading-none">&times;</button>
+    </div>
+    <!-- tabs -->
+    <div class="flex gap-0 border-b border-slate-800 px-4">
+      <div class="tab active text-xs" onclick="connTab('connections')" id="conn-tab-connections">Connexions</div>
+      <div class="tab text-xs" onclick="connTab('packages')" id="conn-tab-packages">Packages RPM</div>
+      <div class="tab text-xs hidden" onclick="connTab('configs')" id="conn-tab-configs">Config Files</div>
+      <div class="tab text-xs hidden" onclick="connTab('es-overview')" id="conn-tab-es-overview">ES Overview</div>
+      <div class="tab text-xs hidden" onclick="connTab('es-nodes')"   id="conn-tab-es-nodes">ES Nœuds</div>
+      <div class="tab text-xs hidden" onclick="connTab('es-indices')" id="conn-tab-es-indices">ES Indices</div>
+      <div class="tab text-xs hidden" onclick="connTab('es-alloc')"   id="conn-tab-es-alloc">ES Disques</div>
+    </div>
+    <div id="conn-modal-body" class="flex-1 overflow-auto p-4 text-xs font-mono"></div>
+  </div>
+</div>
+
+<!-- ── STORAGE NODE DETAIL MODAL ── -->
+<div id="sn-modal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-50" onclick="closeSnModal(event)">
+  <div class="card rounded-xl w-full max-w-5xl max-h-[88vh] flex flex-col" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between px-5 py-3 border-b border-slate-700">
+      <div>
+        <h3 class="font-semibold text-slate-200" id="sn-modal-title">Storage Node</h3>
+        <p class="text-xs text-slate-500" id="sn-modal-subtitle"></p>
+      </div>
+      <button onclick="closeSnModal()" class="text-slate-500 hover:text-slate-200 text-xl leading-none">&times;</button>
+    </div>
+    <div class="flex gap-0 border-b border-slate-800 px-4 overflow-x-auto">
+      <div class="tab active text-xs whitespace-nowrap" onclick="snTab('overview')"  id="sn-tab-overview">Vue d'ensemble</div>
+      <div class="tab text-xs whitespace-nowrap"        onclick="snTab('volumes')"   id="sn-tab-volumes">Volumes</div>
+      <div class="tab text-xs whitespace-nowrap"        onclick="snTab('hardware')"  id="sn-tab-hardware">Hardware</div>
+      <div class="tab text-xs whitespace-nowrap hidden" onclick="snTab('hp')"        id="sn-tab-hp">Health Processor</div>
+      <div class="tab text-xs whitespace-nowrap hidden" onclick="snTab('feeds')"     id="sn-tab-feeds">Feeds</div>
+      <div class="tab text-xs whitespace-nowrap hidden" onclick="snTab('defrag')"   id="sn-tab-defrag">Defrag</div>
+      <div class="tab text-xs whitespace-nowrap hidden" onclick="snTab('alerts')"    id="sn-tab-alerts">Alertes</div>
+    </div>
+    <div id="sn-modal-body" class="flex-1 overflow-auto p-4 text-xs"></div>
+  </div>
+</div>
+
+<!-- ── CONFIG VIEWER MODAL ── -->
+<div id="cfg-modal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-50" onclick="closeCfgModal(event)">
+  <div class="card rounded-xl w-full max-w-3xl max-h-[80vh] flex flex-col" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between px-5 py-3 border-b border-slate-700">
+      <div>
+        <h3 class="font-semibold text-slate-200" id="cfg-modal-title">Node config</h3>
+        <p class="text-xs text-slate-500" id="cfg-modal-subtitle"></p>
+      </div>
+      <button onclick="closeCfgModal()" class="text-slate-500 hover:text-slate-200 text-xl leading-none">&times;</button>
+    </div>
+    <div id="cfg-modal-tabs" class="flex gap-0 border-b border-slate-800 px-4 overflow-x-auto"></div>
+    <pre id="cfg-modal-body" class="flex-1 overflow-auto p-4 text-xs text-slate-300 font-mono bg-slate-950 rounded-b-xl whitespace-pre-wrap"></pre>
+  </div>
+</div>
+
+<!-- ── CREDENTIAL MODAL ── -->
+<div id="cred-modal" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+  <div class="card rounded-xl p-6 w-full max-w-md space-y-4">
+    <h3 class="font-semibold text-slate-200" id="cred-modal-title">Add Credential</h3>
+    <input id="c-name"     class="input" placeholder="Profile name (e.g. root-default)"/>
+    <input id="c-username" class="input" placeholder="SSH username"/>
+    <input id="c-port"     class="input" type="number" value="22" placeholder="Port"/>
+    <textarea id="c-password" class="input h-10" placeholder="Password (leave empty if using key)"></textarea>
+    <textarea id="c-key"   class="input h-24 font-mono text-xs" placeholder="Private key PEM (optional)"></textarea>
+    <label class="flex items-center gap-2 text-sm text-slate-400">
+      <input type="checkbox" id="c-default" class="accent-blue-500"/>
+      Set as default profile
+    </label>
+    <div class="flex gap-2 justify-end">
+      <button onclick="closeCredModal()" class="btn btn-ghost">Cancel</button>
+      <button onclick="saveCredential()" class="btn btn-primary">Save</button>
+    </div>
+    <input type="hidden" id="c-id"/>
+  </div>
+</div>
+
+<!-- ── SERVER MODAL ── -->
+<div id="server-modal" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+  <div class="card rounded-xl p-6 w-full max-w-md space-y-4">
+    <h3 class="font-semibold text-slate-200" id="server-modal-title">Add Server</h3>
+    <input id="s-name" class="input" placeholder="Server name (e.g. swarm-node-01)"/>
+    <input id="s-ip"   class="input" placeholder="IP address"/>
+    <select id="s-cred" class="input">
+      <option value="">-- Use default credential --</option>
+    </select>
+    <div class="flex gap-2 justify-end">
+      <button onclick="closeServerModal()" class="btn btn-ghost">Cancel</button>
+      <button onclick="saveServer()" class="btn btn-primary">Save</button>
+    </div>
+    <input type="hidden" id="s-id"/>
+  </div>
+</div>
+
+<script>
+const API = '';
+let credentials = [];
+let servers = [];
+let auditPollTimer = null;
+
+// ─── Tab navigation ───────────────────────────────────────────────────────────
+function showTab(name) {
+  ['diagram','results','servers','credentials'].forEach(t => {
+    document.getElementById('panel-'+t).classList.toggle('hidden', t !== name);
+    document.getElementById('tab-'+t).classList.toggle('active', t === name);
+  });
+  if (name === 'servers')     renderServers();
+  if (name === 'credentials') renderCredentials();
+  if (name === 'diagram')     loadDiagram();
+  if (name === 'results')     loadResults();
+}
+
+// ─── Audit ────────────────────────────────────────────────────────────────────
+async function triggerAudit() {
+  const btn = document.getElementById('audit-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<svg class="w-4 h-4 spinner" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 20v-5h-5M4 9a9 9 0 0115 0M20 15a9 9 0 01-15 0"/></svg> Running...';
+  try {
+    const r = await fetch(API+'/api/audit/run', {method:'POST'});
+    const d = await r.json();
+    if (d.status === 'started' || d.status === 'already_running') {
+      pollAuditStatus();
+    }
+  } catch(e) {
+    alert('Failed to start audit: '+e);
+    btn.disabled = false;
+    btn.innerHTML = 'Run Audit';
+  }
+}
+
+function pollAuditStatus() {
+  clearInterval(auditPollTimer);
+  auditPollTimer = setInterval(async () => {
+    const r = await fetch(API+'/api/audit/status');
+    const d = await r.json();
+    const badge = document.getElementById('audit-status-badge');
+    badge.classList.remove('hidden');
+    if (d.status === 'running') {
+      badge.textContent = 'Audit running...';
+      badge.className = 'text-xs px-3 py-1 rounded-full bg-blue-900 text-blue-300 pulse';
+    } else if (d.status === 'done') {
+      badge.textContent = 'Audit complete';
+      badge.className = 'text-xs px-3 py-1 rounded-full bg-green-900 text-green-300';
+      clearInterval(auditPollTimer);
+      const btn = document.getElementById('audit-btn');
+      btn.disabled = false;
+      btn.innerHTML = 'Run Audit';
+      await loadResults();
+      loadDiagram();
+    } else if (d.status === 'error') {
+      badge.textContent = 'Audit error';
+      badge.className = 'text-xs px-3 py-1 rounded-full bg-red-900 text-red-300';
+      clearInterval(auditPollTimer);
+      const btn = document.getElementById('audit-btn');
+      btn.disabled = false;
+      btn.innerHTML = 'Run Audit';
+    }
+  }, 2000);
+}
+
+// ─── Diagram ─────────────────────────────────────────────────────────────────
+async function loadDiagram() {
+  const c = document.getElementById('diagram-container');
+  try {
+    const r = await fetch(API+'/api/diagram/svg');
+    const svg = await r.text();
+    c.innerHTML = svg;
+    _selectedNodeId = null;  // clear connection highlight on diagram refresh
+    _applySvgZoom();          // restore zoom level after SVG reload
+    // Show toolbar with export link when diagram has content
+    const tb = document.getElementById('diagram-toolbar');
+    if (tb) tb.style.removeProperty('display');
+  } catch(e) {
+    c.innerHTML = '<p class="text-red-400 text-sm">Failed to load diagram.</p>';
+  }
+}
+
+// ─── Results ─────────────────────────────────────────────────────────────────
+const ROLE_COLORS_CSS = {
+  HAPROXY:'bg-red-800',CONTENT_GATEWAY:'bg-blue-800',SCS:'bg-blue-900',
+  STORAGE_UI:'bg-teal-800',CONTENT_UI:'bg-teal-900',SWARMFS:'bg-green-800',
+  LISTING_CACHE:'bg-yellow-800',LISTING_CACHE_SERVER:'bg-orange-800',
+  ELASTICSEARCH:'bg-purple-800',CSN_PLATFORM:'bg-purple-900',
+  FOUNDATION_DB:'bg-slate-700',STORAGE_NODE:'bg-slate-800',UNKNOWN:'bg-gray-700'
+};
+
+function _resultCardHtml(res) {
+  const roles = res.roles?.map(r =>
+    `<span class="role-badge ${ROLE_COLORS_CSS[r.role]||'bg-gray-700'}">${r.role}</span>`
+  ).join(' ') || '<span class="role-badge bg-gray-700">UNKNOWN</span>';
+
+  const statusIcon = res.success
+    ? '<span class="text-green-400">✓</span>'
+    : (res._discovered ? '<span class="text-orange-400">◈</span>' : '<span class="text-red-400">✗</span>');
+
+  const esCluster = res.es_cluster_name
+    ? `<div class="mt-1 text-xs"><span class="text-slate-500">ES cluster</span> <code class="bg-purple-900 text-purple-200 px-1.5 py-0.5 rounded">${esc(res.es_cluster_name)}</code></div>`
+    : '';
+  const swarmSummary = res.swarm_cluster_summary
+    ? `<div class="mt-1 text-xs text-slate-400"><span class="text-slate-500">Swarm</span> ${esc(res.swarm_cluster_summary)}</div>`
+    : '';
+
+  let specs = '';
+  if (res._discovered) {
+    // Discovered storage node — show swarmctl data
+    const sn = res._sn_data;
+    const usedPct = 100 - (parseFloat(sn?.avail_pct) || 0);
+    const bc = usedPct > 85 ? '#ef4444' : usedPct > 70 ? '#f59e0b' : '#22c55e';
+    specs = `<div class="mt-2 text-xs text-slate-400 flex flex-wrap gap-4">
+      <span><span class="text-slate-500">Used</span> <b class="text-white">${esc(sn?.used||'?')}</b> / <b class="text-white">${esc(sn?.max||'?')}</b></span>
+      <span><span class="text-slate-500">Streams</span> <b class="text-white">${esc(sn?.streams||'?')}</b></span>
+      <span><span class="text-slate-500">Uptime</span> <b class="text-white">${esc(sn?.uptime||'?')}</b></span>
+      <span><span class="text-slate-500">v</span><b class="text-cyan-300">${esc(sn?.version||'?')}</b></span>
+    </div>
+    <div class="mt-1 w-48 h-1.5 rounded bg-slate-800">
+      <div class="h-1.5 rounded" style="width:${Math.min(100,usedPct).toFixed(0)}%;background:${bc}"></div>
+    </div>`;
+  } else if (res.success) {
+    specs = `<div class="grid grid-cols-3 gap-3 mt-3 text-xs text-slate-400">
+      <div><span class="text-slate-500">CPU</span> ${res.cpu?.count||'?'} × ${(res.cpu?.model||'?').slice(0,30)}</div>
+      <div><span class="text-slate-500">RAM</span> ${res.ram ? Math.round(res.ram.total_mb/1024)+'GB total / '+Math.round(res.ram.free_mb/1024)+'GB free' : '?'}</div>
+      <div><span class="text-slate-500">OS</span> ${res.os||'?'}</div>
+    </div>
+    ${esCluster}${swarmSummary}
+    <div class="mt-2 text-xs text-slate-500">
+      Ports: ${res.listen_ports?.slice(0,12).map(p=>`<code class="bg-slate-800 px-1 rounded">${p.port}</code>`).join(' ')||'none'}
+    </div>`;
+  } else {
+    specs = `<p class="text-red-400 text-xs mt-2">${esc(res.error||'Unknown error')}</p>`;
+  }
+
+  const primaryRole = (res.roles || [{role:'UNKNOWN'}])[0].role;
+  const isStorageNode = primaryRole === 'STORAGE_NODE';
+  const detailBtn = (res.success || res._discovered)
+    ? `<button onclick="${isStorageNode ? 'openSnModal' : 'openConnModal'}(
+        _auditResultsCache.find(r=>r.server_id==='${res.server_id}') || _discStorageCache.find(r=>r.server_id==='${res.server_id}')
+      )" class="btn btn-ghost text-xs mt-2">Détails →</button>`
+    : '';
+
+  const discoveredBadge = res._discovered
+    ? '<span class="text-xs text-orange-400 border border-orange-900 rounded px-1.5 py-0.5">discovered</span>'
+    : '';
+
+  return `<div class="card rounded-xl p-4">
+    <div class="flex items-start justify-between">
+      <div>
+        <div class="flex items-center gap-2 flex-wrap">
+          ${statusIcon}
+          <span class="font-semibold text-slate-200">${esc(res.server_name)}</span>
+          <span class="text-slate-500 text-sm font-mono">${esc(res.server_ip)}</span>
+          ${discoveredBadge}
+        </div>
+        <div class="mt-2 flex flex-wrap gap-1">${roles}</div>
+      </div>
+      <span class="text-xs text-slate-600">${esc(res.hostname||'')}</span>
+    </div>
+    ${specs}
+    ${detailBtn}
+  </div>`;
+}
+
+let _discStorageCache = [];
+
+async function loadResults() {
+  const r = await fetch(API+'/api/audit/results');
+  const results = await r.json();
+  _auditResultsCache = results;
+
+  const el = document.getElementById('results-list');
+  if (!results.length) {
+    el.innerHTML = '<p class="text-slate-500 text-sm">No audit results yet.</p>';
+    return;
+  }
+
+  // Show Health Report button if any discovered storage node has health_report
+  const hasHealthReport = results.some(r =>
+    (r.discovered_storage_nodes || []).some(sn => sn.health_report)
+  );
+  document.getElementById('health-report-btn').classList.toggle('hidden', !hasHealthReport);
+
+  // Build synthetic result objects for discovered storage nodes not in inventory
+  const auditedIps = new Set(results.map(r => r.server_ip));
+  _discStorageCache = [];
+  results.forEach(r => {
+    (r.discovered_storage_nodes || []).forEach(sn => {
+      if (!auditedIps.has(sn.ip)) {
+        auditedIps.add(sn.ip);
+        const sid = `disc-storage-${sn.ip}`;
+        const synth = {
+          server_id: sid,
+          server_name: sn.ip,
+          server_ip: sn.ip,
+          success: sn.status === 'ok',
+          roles: [{role:'STORAGE_NODE', reason:'swarmctl discovered'}],
+          hostname: '',
+          discovered_storage_nodes: [],
+          network_interfaces: [],
+          installed_packages: [],
+          disks: [],
+          connections: [],
+          config_contents: {},
+          haproxy_backends: [],
+          haproxy_vips: [],
+          gw_cluster_ips: [],
+          gw_es_ips: [],
+          gw_lcs_ips: [],
+          es_seed_hosts: [],
+          listen_ports: [],
+          _discovered: true,
+          _sn_data: sn,
+        };
+        _discStorageCache.push(synth);
+      }
+    });
+  });
+
+  // Combine audited + discovered, with a separator if both exist
+  const allCards = results.map(res => _resultCardHtml(res));
+
+  if (_discStorageCache.length) {
+    allCards.push(`<div class="text-xs text-slate-600 uppercase tracking-widest pt-2 pb-1 px-1">
+      Storage nodes découverts via swarmctl (${_discStorageCache.length})
+    </div>`);
+    _discStorageCache.forEach(res => allCards.push(_resultCardHtml(res)));
+  }
+
+  el.innerHTML = allCards.join('');
+}
+
+// ─── Credentials ─────────────────────────────────────────────────────────────
+async function fetchCredentials() {
+  const r = await fetch(API+'/api/credentials');
+  credentials = await r.json();
+}
+
+function renderCredentials() {
+  const tb = document.getElementById('credentials-tbody');
+  if (!credentials.length) {
+    tb.innerHTML = '<tr><td colspan="6" class="px-4 py-8 text-slate-500 text-center text-sm">No credentials yet.</td></tr>';
+    return;
+  }
+  tb.innerHTML = credentials.map(c => `
+    <tr class="border-t border-slate-800 hover:bg-slate-800/30">
+      <td class="px-4 py-3 font-medium text-slate-200">${esc(c.name)}</td>
+      <td class="px-4 py-3 text-slate-400">${esc(c.username)}</td>
+      <td class="px-4 py-3 text-slate-400">${c.port}</td>
+      <td class="px-4 py-3 text-slate-400 text-xs">
+        ${c.has_key ? '<span class="text-green-400">Key</span>' : ''}
+        ${c.has_password ? '<span class="text-yellow-400">Password</span>' : ''}
+        ${!c.has_key && !c.has_password ? '<span class="text-red-400">None</span>' : ''}
+      </td>
+      <td class="px-4 py-3">${c.is_default ? '<span class="text-blue-400 text-xs">default</span>' : ''}</td>
+      <td class="px-4 py-3 flex gap-2 justify-end">
+        <button onclick="editCredential('${c.id}')" class="btn btn-ghost text-xs">Edit</button>
+        <button onclick="deleteCredential('${c.id}')" class="btn btn-danger text-xs">Delete</button>
+      </td>
+    </tr>`).join('');
+}
+
+function openCredModal(id) {
+  document.getElementById('cred-modal-title').textContent = id ? 'Edit Credential' : 'Add Credential';
+  ['c-name','c-username','c-port','c-password','c-key','c-id'].forEach(k => {
+    document.getElementById(k).value = k === 'c-port' ? '22' : '';
+  });
+  document.getElementById('c-default').checked = false;
+  document.getElementById('c-id').value = id || '';
+  document.getElementById('cred-modal').classList.remove('hidden');
+}
+
+function closeCredModal() { document.getElementById('cred-modal').classList.add('hidden'); }
+
+async function editCredential(id) {
+  openCredModal(id);
+  const c = credentials.find(x => x.id === id);
+  if (c) {
+    document.getElementById('c-name').value = c.name;
+    document.getElementById('c-username').value = c.username;
+    document.getElementById('c-port').value = c.port;
+    document.getElementById('c-default').checked = c.is_default;
+  }
+}
+
+async function saveCredential() {
+  const id = document.getElementById('c-id').value;
+  const body = {
+    name: document.getElementById('c-name').value,
+    username: document.getElementById('c-username').value,
+    port: parseInt(document.getElementById('c-port').value) || 22,
+    password: document.getElementById('c-password').value || null,
+    private_key: document.getElementById('c-key').value || null,
+    is_default: document.getElementById('c-default').checked,
+  };
+  const url = id ? `/api/credentials/${id}` : '/api/credentials';
+  const method = id ? 'PUT' : 'POST';
+  await fetch(API+url, {method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  closeCredModal();
+  await fetchCredentials();
+  renderCredentials();
+  refreshCredentialSelect();
+}
+
+async function deleteCredential(id) {
+  if (!confirm('Delete this credential?')) return;
+  await fetch(API+`/api/credentials/${id}`, {method:'DELETE'});
+  await fetchCredentials();
+  renderCredentials();
+}
+
+// ─── Servers ──────────────────────────────────────────────────────────────────
+async function fetchServers() {
+  const r = await fetch(API+'/api/servers');
+  servers = await r.json();
+}
+
+function renderServers() {
+  const tb = document.getElementById('servers-tbody');
+  if (!servers.length) {
+    tb.innerHTML = '<tr><td colspan="4" class="px-4 py-8 text-slate-500 text-center text-sm">No servers yet.</td></tr>';
+    return;
+  }
+  tb.innerHTML = servers.map(s => {
+    const cred = credentials.find(c => c.id === s.credential_id);
+    const credLabel = cred ? esc(cred.name) : '<span class="text-slate-500">default</span>';
+    return `<tr class="border-t border-slate-800 hover:bg-slate-800/30">
+      <td class="px-4 py-3 font-medium text-slate-200">${esc(s.name)}</td>
+      <td class="px-4 py-3 text-slate-400 font-mono">${esc(s.ip)}</td>
+      <td class="px-4 py-3 text-slate-400 text-sm">${credLabel}</td>
+      <td class="px-4 py-3 flex gap-2 justify-end">
+        <button onclick="editServer('${s.id}')" class="btn btn-ghost text-xs">Edit</button>
+        <button onclick="deleteServer('${s.id}')" class="btn btn-danger text-xs">Delete</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function refreshCredentialSelect() {
+  const sel = document.getElementById('s-cred');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">-- Use default credential --</option>' +
+    credentials.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  if (cur) sel.value = cur;
+}
+
+function openServerModal(id) {
+  document.getElementById('server-modal-title').textContent = id ? 'Edit Server' : 'Add Server';
+  document.getElementById('s-name').value = '';
+  document.getElementById('s-ip').value = '';
+  document.getElementById('s-id').value = id || '';
+  refreshCredentialSelect();
+  document.getElementById('server-modal').classList.remove('hidden');
+}
+
+function closeServerModal() { document.getElementById('server-modal').classList.add('hidden'); }
+
+async function editServer(id) {
+  openServerModal(id);
+  const s = servers.find(x => x.id === id);
+  if (s) {
+    document.getElementById('s-name').value = s.name;
+    document.getElementById('s-ip').value = s.ip;
+    document.getElementById('s-cred').value = s.credential_id || '';
+  }
+}
+
+async function saveServer() {
+  const id = document.getElementById('s-id').value;
+  const body = {
+    name: document.getElementById('s-name').value,
+    ip: document.getElementById('s-ip').value,
+    credential_id: document.getElementById('s-cred').value || null,
+  };
+  const url = id ? `/api/servers/${id}` : '/api/servers';
+  const method = id ? 'PUT' : 'POST';
+  await fetch(API+url, {method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  closeServerModal();
+  await fetchServers();
+  renderServers();
+}
+
+async function deleteServer(id) {
+  if (!confirm('Delete this server?')) return;
+  await fetch(API+`/api/servers/${id}`, {method:'DELETE'});
+  await fetchServers();
+  renderServers();
+}
+
+// ─── Utils ────────────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ─── Config viewer ───────────────────────────────────────────────────────
+let _auditResultsCache = [];
+
+// ── Connection highlight state ────────────────────────────────────────────────
+let _selectedNodeId = null;
+
+// Click on a tile → highlight outbound AND inbound connections.
+// Second click on same tile → clear overlay.
+function svgNodeClick(event, serverId) {
+  event.stopPropagation();
+  const svgContainer = document.getElementById('diagram-container');
+  if (!svgContainer) return;
+  const svgEl = svgContainer.querySelector('svg');
+  if (!svgEl) return;
+
+  const overlay = svgEl.querySelector('#swarm-overlay');
+  if (!overlay) return;
+
+  const descEl = svgEl.querySelector('#swarm-node-data');
+  if (!descEl) return;
+  let data;
+  try { data = JSON.parse(descEl.textContent); } catch(e) { return; }
+  const nodes = data.nodes   || {};
+  const ip2id = data.ip_to_id || {};
+
+  // Second click → clear
+  if (_selectedNodeId === serverId) {
+    _selectedNodeId = null;
+    overlay.innerHTML = '';
+    return;
+  }
+  _selectedNodeId = serverId;
+  overlay.innerHTML = '';
+
+  const src = nodes[serverId];
+  if (!src) return;
+  const NS = 'http://www.w3.org/2000/svg';
+
+  // Helper: intersection of line (cx,cy)→(tx,ty) with card rectangle edge
+  function cardEdge(cx, cy, hw, hh, tx, ty) {
+    const dx = tx - cx, dy = ty - cy;
+    if (dx === 0 && dy === 0) return {x: cx, y: cy};
+    const t = Math.min(
+      dx !== 0 ? hw / Math.abs(dx) : Infinity,
+      dy !== 0 ? hh / Math.abs(dy) : Infinity
+    );
+    return {x: cx + dx * t, y: cy + dy * t};
+  }
+
+  // Draw an arrow from srcNode to dstNode with given color + port label
+  function drawArrow(srcNode, dstNode, color, markerId, portLabel) {
+    const p1 = cardEdge(srcNode.cx, srcNode.cy, srcNode.hw||110, srcNode.hh||57, dstNode.cx, dstNode.cy);
+    const p2 = cardEdge(dstNode.cx, dstNode.cy, dstNode.hw||110, dstNode.hh||57, srcNode.cx, srcNode.cy);
+
+    const line = document.createElementNS(NS, 'line');
+    line.setAttribute('x1', p1.x); line.setAttribute('y1', p1.y);
+    line.setAttribute('x2', p2.x); line.setAttribute('y2', p2.y);
+    line.setAttribute('stroke', color);
+    line.setAttribute('stroke-width', '2.5');
+    line.setAttribute('opacity', '0.9');
+    line.setAttribute('marker-end', `url(#${markerId})`);
+    overlay.appendChild(line);
+
+    // Port badge beside the line (perpendicular offset so it doesn't overlap the stroke)
+    const mx = p1.x + (p2.x - p1.x) * 0.72;
+    const my = p1.y + (p2.y - p1.y) * 0.72;
+    // Unit normal to the line direction, rotated 90° counter-clockwise
+    const _dx = p2.x - p1.x, _dy = p2.y - p1.y;
+    const _len = Math.sqrt(_dx * _dx + _dy * _dy) || 1;
+    const OFF = 12;  // px offset from line centre
+    const bx = mx + (-_dy / _len) * OFF;
+    const by = my + ( _dx / _len) * OFF;
+    const bw = Math.min(portLabel.length * 6 + 12, 110);
+
+    const bg = document.createElementNS(NS, 'rect');
+    bg.setAttribute('x', bx - bw/2); bg.setAttribute('y', by - 9);
+    bg.setAttribute('width', bw);    bg.setAttribute('height', 14);
+    bg.setAttribute('rx', '4');      bg.setAttribute('fill', '#0f172a');
+    bg.setAttribute('stroke', color); bg.setAttribute('stroke-width', '1');
+    bg.setAttribute('opacity', '0.93');
+    overlay.appendChild(bg);
+
+    const txt = document.createElementNS(NS, 'text');
+    txt.setAttribute('x', bx); txt.setAttribute('y', by + 1);
+    txt.setAttribute('text-anchor', 'middle');
+    txt.setAttribute('fill', color);
+    txt.setAttribute('font-size', '9');
+    txt.setAttribute('font-family', 'monospace');
+    txt.textContent = portLabel;
+    overlay.appendChild(txt);
+  }
+
+  const drawn = new Set();
+
+  // Outbound: connections FROM clicked node
+  for (const conn of (src.conns || [])) {
+    const destId = ip2id[conn.dst];
+    if (!destId || destId === serverId) continue;
+    const dst = nodes[destId];
+    if (!dst) continue;
+    const key = `${serverId}->${destId}:${conn.port}`;
+    if (drawn.has(key)) continue;
+    drawn.add(key);
+    const col      = dst.role_color || '#f59e0b';
+    const markerId = 'arr-' + (dst.role || 'unknown').replace(/_/g,'-').toLowerCase();
+    const label    = `:${conn.port}${conn.proc ? ' ' + conn.proc.split('/').pop() : ''}`;
+    drawArrow(src, dst, col, markerId, label);
+  }
+
+  // Inbound: connections from OTHER nodes that point to clicked node's IPs
+  const srcIpSet = new Set(src.ips || [serverId.replace('disc-storage-','')]);
+  for (const [otherId, other] of Object.entries(nodes)) {
+    if (otherId === serverId) continue;
+    for (const conn of (other.conns || [])) {
+      if (!srcIpSet.has(conn.dst)) continue;
+      const key = `${otherId}->${serverId}:${conn.port}`;
+      if (drawn.has(key)) continue;
+      drawn.add(key);
+      const col      = src.role_color || '#f59e0b';
+      const markerId = 'arr-' + (src.role || 'unknown').replace(/_/g,'-').toLowerCase();
+      const label    = `:${conn.port}${conn.proc ? ' ' + conn.proc.split('/').pop() : ''}`;
+      drawArrow(other, src, col, markerId, label);
+    }
+  }
+}
+
+// Open detail modal for a node (called by the Details badge in SVG tiles)
+function svgNodeDetails(event, serverId) {
+  event.stopPropagation();
+  let res = _auditResultsCache.find(r => r.server_id === serverId)
+         || _discStorageCache.find(r => r.server_id === serverId);
+
+  if (!res && serverId.startsWith('disc-storage-')) {
+    const ip = serverId.replace('disc-storage-', '');
+    res = { server_id: serverId, server_name: ip, server_ip: ip, success: true,
+            roles: [{role:'STORAGE_NODE', reason:'discovered'}],
+            discovered_storage_nodes: [], network_interfaces: [],
+            installed_packages: [], disks: [], connections: [],
+            config_contents: {}, haproxy_backends: [], haproxy_vips: [],
+            gw_cluster_ips: [], gw_es_ips: [], gw_lcs_ips: [],
+            es_seed_hosts: [], listen_ports: [] };
+  }
+
+  if (!res) return;
+  const roles = (res.roles || []).map(r => r.role);
+  if (roles.includes('STORAGE_NODE') || serverId.startsWith('disc-storage-')) {
+    openSnModal(res);
+  } else {
+    openConnModal(res);
+  }
+}
+
+// ─── Storage Node detail modal ────────────────────────────────────────────────
+// Uses per-node SNMP healthreport format (swarmctl -d <ip> -Q healthreport)
+let _snCurrentRes = null;
+let _snCurrentSn  = null;  // DiscoveredStorageNode object (has .health_report)
+
+function _snBar(pct, w=120) {
+  pct = Math.max(0, Math.min(100, pct));
+  const c = pct > 85 ? '#ef4444' : pct > 70 ? '#f59e0b' : '#22c55e';
+  const f = Math.round(w * pct / 100);
+  return `<div style="display:inline-block;width:${w}px;height:8px;background:#1e293b;border-radius:4px;vertical-align:middle;">
+    <div style="width:${f}px;height:8px;background:${c};border-radius:4px;"></div>
+  </div> <span style="color:${c};font-size:10px;">${pct.toFixed(1)}%</span>`;
+}
+
+// Convert SNMP columnar dict {col: [v0,v1,...]} → array of row objects
+function _snmpColToRows(table) {
+  if (!table || typeof table !== 'object') return [];
+  const keys = Object.keys(table);
+  if (!keys.length) return [];
+  const n = Math.max(...keys.map(k => Array.isArray(table[k]) ? table[k].length : 0));
+  const rows = [];
+  for (let i = 0; i < n; i++) {
+    const row = {};
+    keys.forEach(k => { row[k] = Array.isArray(table[k]) ? table[k][i] : table[k]; });
+    rows.push(row);
+  }
+  return rows;
+}
+
+function openSnModal(res) {
+  _snCurrentRes = res;
+  _snCurrentSn  = null;
+
+  const _discEntry = _discStorageCache.find(r => r.server_ip === res.server_ip);
+  if (_discEntry?._sn_data) {
+    _snCurrentSn = _discEntry._sn_data;
+  } else {
+    _auditResultsCache.forEach(r => {
+      (r.discovered_storage_nodes || []).forEach(n => {
+        if (n.ip === res.server_ip) _snCurrentSn = n;
+      });
+    });
+  }
+
+  const sn = _snCurrentSn;
+  const hr = sn?.health_report || null;
+  const hasHr = !!(hr && (hr['SNMP objects'] || hr['SNMP tables']));
+  const objs = hr?.['SNMP objects'] || {};
+  const tbls0 = hr?.['SNMP tables'] || {};
+  const hasHp     = !!(hr && objs['HP State']);
+  const hasFeed   = !!(hr && Array.isArray((tbls0['Feed Table'] || {})['feedName']) && tbls0['Feed Table']['feedName'].length);
+  const hasDefrag = !!(hr && ((tbls0['Volumes Ongoing Defrag'] || {})['Volume name'] || (tbls0['Volumes Last Defrag'] || {})['Volume name']));
+
+  document.getElementById('sn-modal-title').textContent = `Storage Node — ${res.server_ip}`;
+  const model  = objs['Chassis Model'] || objs['Product Name'] || objs['Chassis Product Name'] || '';
+  const serial = objs['Chassis Serial Number'] || objs['Serial Number'] || objs['Node Serial Number'] || '';
+  let sub = sn ? `${sn.status}  v${sn.version}  ·  ${sn.used}/${sn.max}  ·  ${sn.streams} streams` : res.os || '';
+  if (model) sub = model + (serial ? ` — ${serial}` : '') + '   ·   ' + sub;
+  document.getElementById('sn-modal-subtitle').textContent = sub;
+
+  document.getElementById('sn-tab-hp').classList.toggle('hidden', !hasHp);
+  document.getElementById('sn-tab-feeds').classList.toggle('hidden', !hasFeed);
+  document.getElementById('sn-tab-defrag').classList.toggle('hidden', !hasDefrag);
+  document.getElementById('sn-tab-alerts').classList.toggle('hidden', !hasHr);
+  document.getElementById('sn-modal').classList.remove('hidden');
+  snTab('overview');
+}
+
+function snTab(name) {
+  ['overview','volumes','hardware','hp','feeds','defrag','alerts'].forEach(t => {
+    const el = document.getElementById(`sn-tab-${t}`);
+    if (el) el.classList.toggle('active', t === name);
+  });
+  const res = _snCurrentRes;
+  const sn  = _snCurrentSn;
+  if (!res) return;
+  const body = document.getElementById('sn-modal-body');
+  const hr   = sn?.health_report || null;
+  const objs = hr?.['SNMP objects'] || {};
+  const tbls = hr?.['SNMP tables']  || {};
+  const nic  = hr?.['NIC']          || {};
+
+  // ─── helpers ─────────────────────────────────────────────────────────────────
+  const o = (k, ...alt) => {
+    for (const key of [k, ...alt]) { const v = objs[key]; if (v !== undefined && v !== null && v !== '') return String(v); }
+    return '';
+  };
+  const oInt = (k, ...alt) => { const v = o(k, ...alt); return parseInt(v) || 0; };
+  const kv = (label, val, cls='text-slate-300', w='w-40') =>
+    val ? `<tr class="border-b border-slate-900"><td class="py-0.5 pr-4 text-slate-500 ${w}">${label}</td><td class="${cls}">${esc(val)}</td></tr>` : '';
+  const bar = (pct, w=100) => {
+    const c = pct>85?'#ef4444':pct>70?'#f59e0b':'#22c55e';
+    return `<span style="display:inline-flex;align-items:center;gap:5px;">
+      <span style="display:inline-block;width:${w}px;height:7px;background:#1e293b;border-radius:4px;">
+        <span style="display:block;width:${Math.min(100,pct).toFixed(0)}%;height:7px;background:${c};border-radius:4px;"></span>
+      </span>
+      <span style="color:${c};font-size:10px;">${pct.toFixed(1)}%</span>
+    </span>`;
+  };
+  const section = (title, col='text-blue-400') =>
+    `<div class="${col} font-bold text-xs tracking-wide uppercase mb-2 mt-4 border-b border-slate-800 pb-0.5">${title}</div>`;
+
+  // ── Shared derived values ─────────────────────────────────────────────────
+  const memTotalMb = oInt('Chassis Memory Total (MB)');
+  const memFreeMb  = oInt('Chassis Memory Free (MB)');
+  const memUsedPct = memTotalMb ? (memTotalMb - memFreeMb) / memTotalMb * 100 : 0;
+  const driveRows  = _snmpColToRows(tbls['Drive Table'] || {});
+  const volRows    = _snmpColToRows(tbls['Volumes Table'] || {});
+  const annRows    = _snmpColToRows(tbls['Announcements Table'] || {});
+  const nicRows    = _snmpColToRows(tbls['NIC Table'] || {});
+
+  // Platform ID Table: parallel arrays 'platform id key' / 'platform id value'
+  const _pidTbl  = tbls['Platform ID Table'] || {};
+  const _pidK    = _pidTbl['platform id key']   || [];
+  const _pidV    = _pidTbl['platform id value'] || [];
+  const pid = {};
+  _pidK.forEach((k, i) => { if (k) pid[k] = String(_pidV[i] ?? ''); });
+  const p = (k) => pid[k] || '';
+
+  // Daily Stats Table: parallel arrays 'Key' / 'Value'
+  const _dsTbl = tbls['Daily Stats Table'] || {};
+  const _dsK   = _dsTbl['Key']   || [];
+  const _dsV   = _dsTbl['Value'] || [];
+  const ds = {};
+  _dsK.forEach((k, i) => { if (k) ds[k] = _dsV[i]; });
+  const dStat = (k) => ds[k] !== undefined ? ds[k] : null;
+
+  // ══════════════════════════════════════════════════════════════════════════
+  if (name === 'overview') {
+    let html = `<div class="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">`;
+
+    // Left column: Node identity + storage bar
+    html += `<div>`;
+    html += section('Nœud de stockage');
+    html += `<table class="w-full text-xs"><tbody>`;
+    if (sn) {
+      const sc = sn.status === 'ok' ? 'text-green-400 font-bold' : 'text-red-400 font-bold';
+      const ec = sn.errors && sn.errors !== '0' ? 'text-red-400 font-bold' : 'text-slate-300';
+      html += kv('IP',       sn.ip,      'text-white font-mono');
+      html += kv('Statut',   sn.status.toUpperCase(), sc);
+      html += kv('Version',  sn.version, 'text-cyan-300');
+      html += kv('Uptime',   sn.uptime);
+      html += kv('Streams',  sn.streams);
+      html += kv('Erreurs',  sn.errors || '0', ec);
+    }
+    const casVer = o('CAStor version','CAStor revision');
+    html += kv('CAStor', casVer, 'text-cyan-300');
+    html += `</tbody></table>`;
+
+    if (sn) {
+      const usedPct = 100 - (parseFloat(sn.avail_pct) || 0);
+      html += `<div class="mt-3">
+        <div class="text-blue-400 font-bold text-xs mb-1">Stockage</div>
+        <div class="flex justify-between text-slate-400 mb-0.5">
+          <span>${esc(sn.used)} / ${esc(sn.max)}</span>
+        </div>
+        ${bar(usedPct, 200)}</div>`;
+    }
+    html += `</div>`;
+
+    // Right column: Hardware + cluster + alerts
+    html += `<div>`;
+    html += section('Matériel');
+    html += `<table class="w-full text-xs"><tbody>`;
+    const ovModel  = p('System_ProductName')  || o('Chassis Model','Product Name','Chassis Product Name');
+    const ovMfr    = p('System_Manufacturer') || o('Chassis Manufacturer','Manufacturer');
+    const ovSerial = p('System_SerialNumber') || o('Chassis Serial Number','Serial Number','Node Serial Number');
+    html += kv('Modèle',       ovModel,  'text-white font-bold');
+    html += kv('Fabricant',    ovMfr);
+    html += kv('Numéro série', ovSerial, 'text-slate-400 font-mono');
+    html += kv('Chassis ID',   o('Chassis Id'), 'text-slate-400 font-mono');
+    if (memTotalMb) {
+      html += `<tr class="border-b border-slate-900">
+        <td class="py-0.5 pr-4 text-slate-500 w-40">RAM</td>
+        <td>${bar(memUsedPct, 100)} <span class="text-slate-500 ml-1">${(memTotalMb/1024).toFixed(0)} GB total</span></td></tr>`;
+    }
+    // CPU from Platform ID Table (first processor)
+    const ovCpuType  = p('CPU_Proc1_Type') || o('CPU Model','Processor Type','CPU Type');
+    const ovCpuCores = p('CPU_Proc1_CoresEnabled') || p('CPU_Proc1_CoresTotal') || o('CPU Count','CPU Cores');
+    const ovCpuSpeed = p('CPU_Proc1_CurrentSpeed') || o('CPU Speed (MHz)','CPU Speed');
+    const cpuNums2   = [...new Set(Object.keys(pid).filter(k=>k.startsWith('CPU_Proc')).map(k=>k.match(/^CPU_Proc(\d+)_/)?.[1]).filter(Boolean))];
+    const cpuCount2  = cpuNums2.length || 1;
+    const cpuLabel   = [ovCpuType, ovCpuCores ? ovCpuCores+' cores' : '', ovCpuSpeed, cpuCount2>1?'×'+cpuCount2:''].filter(Boolean).join(' · ');
+    html += kv('CPU', cpuLabel);
+    html += `</tbody></table>`;
+
+    // Cluster (compact — quick-glance only)
+    const clState  = o('Cluster: State');
+    if (clState) {
+      const sc2 = clState.toLowerCase()==='ok' ? 'text-green-400 font-bold' : 'text-yellow-400 font-bold';
+      html += `<div class="mt-2 px-2 py-1 rounded bg-slate-900 text-xs flex gap-3">
+        <span class="text-slate-500">Cluster</span>
+        <span class="${sc2}">${esc(clState.toUpperCase())}</span>
+        <span class="text-slate-500">·</span>
+        <span class="text-slate-400">Node: <span class="${o('Node state','').toLowerCase()==='ok'?'text-green-400':'text-red-400'}">${esc((o('Node state')||'?').toUpperCase())}</span></span>
+      </div>`;
+    }
+
+    // Drives + Alerts summary badges
+    if (driveRows.length) {
+      const ok  = driveRows.filter(d => String(d['drive state']||'').toLowerCase()==='ok').length;
+      const bad = driveRows.filter(d => { const s = String(d['drive state']||'').toLowerCase(); return s!=='ok'&&!s.includes('retired'); }).length;
+      const ret = driveRows.length - ok - bad;
+      html += `<div class="flex gap-2 mt-3 flex-wrap">
+        <span class="px-2 py-0.5 rounded-full text-xs bg-slate-800 text-slate-400">${driveRows.length} drives</span>
+        <span class="px-2 py-0.5 rounded-full text-xs bg-green-900/40 text-green-300">${ok} OK</span>
+        ${ret ? `<span class="px-2 py-0.5 rounded-full text-xs bg-slate-800 text-slate-500">${ret} retired</span>` : ''}
+        ${bad ? `<span class="px-2 py-0.5 rounded-full text-xs bg-red-900/50 text-red-300 font-bold">${bad} erreur</span>` : ''}
+      </div>`;
+    }
+    if (annRows.length) {
+      const errAnn = annRows.filter(r => String(r['Severity']||'').toLowerCase()==='error').length;
+      html += `<div class="mt-2 px-3 py-1.5 rounded border text-xs ${errAnn ? 'border-red-700 bg-red-900/20 text-red-300' : 'border-orange-700 bg-orange-900/20 text-orange-300'}">
+        ⚠  ${annRows.length} annonce${annRows.length>1?'s':''} active${annRows.length>1?'s':''} — voir onglet Alertes
+      </div>`;
+    }
+    html += `</div></div>`;  // close right col + grid
+
+    // ── Cluster stats ribbon + Recovery Analysis (full width) ─────────────────
+    const physGb   = oInt('Cluster: Minimum of Total GBytes (licensed) capacity and physical space');
+    const availGb  = oInt('Cluster: Total GBytes available');
+    const licGb    = oInt('Cluster: Total GBytes Licensed Capacity');
+    const logSpMb  = oInt('Cluster: Total Logical Space Used (MB)');
+    const logObjs  = oInt('Cluster: Total Logical Objects');
+    const unproc   = oInt('Cluster: Unprocessed logical streams');
+    const idxTot   = oInt('Index Slots Total');
+    const idxUsed  = oInt('Index Slots Used');
+    const memUtil  = o('Memory Utilization');
+
+    // Parse streamCount from GW cluster summary stored in any auditResult
+    let _streamCount = '';
+    (_auditResultsCache || []).forEach(r => {
+      if (r.swarm_cluster_summary) {
+        const m = r.swarm_cluster_summary.match(/([\d.]+[KMB])\s+streams/);
+        if (m) _streamCount = m[1];
+      }
+    });
+
+    if (physGb || logObjs) {
+      const availPctNum = physGb ? (availGb / physGb * 100) : 0;
+      const usedGb      = physGb - availGb;
+      const logSpGb     = logSpMb / 1024;
+      const overheadGb  = Math.max(0, usedGb - logSpGb);
+
+      const chip = (label, val, cls='text-white') => val
+        ? `<div class="px-2.5 py-1.5 rounded bg-slate-800/80 border border-slate-700">
+             <div class="text-slate-500 text-xs mb-0.5" style="font-size:10px">${label}</div>
+             <div class="font-bold text-xs ${cls}">${val}</div>
+           </div>` : '';
+
+      html += `<div class="mt-4 border-t border-slate-800 pt-3">`;
+      html += `<div class="text-blue-400 font-bold text-xs tracking-wide uppercase mb-2">Cluster — Vue globale</div>`;
+      html += `<div class="flex flex-wrap gap-2 mb-4">
+        ${physGb    ? chip('Physical', (physGb/1024).toFixed(2)+' TB') : ''}
+        ${availGb   ? chip('Available', (availGb/1024).toFixed(2)+' TB — '+availPctNum.toFixed(1)+'%', availPctNum<20?'text-red-400':availPctNum<35?'text-yellow-400':'text-green-400') : ''}
+        ${logSpMb   ? chip('Logical used', (logSpGb).toFixed(2)+' TB', 'text-slate-300') : ''}
+        ${licGb     ? chip('Licensed', (licGb/1024).toFixed(0)+' TB', 'text-slate-400') : ''}
+        ${_streamCount ? chip('Streams', _streamCount, 'text-cyan-300') : ''}
+        ${logObjs   ? chip('Logical objects', logObjs.toLocaleString(), 'text-cyan-300') : ''}
+        ${unproc    ? chip('Unprocessed', unproc.toLocaleString(), unproc>10000?'text-yellow-400':'text-slate-300') : ''}
+        ${idxTot    ? chip('Index slots used', idxUsed.toLocaleString()+' / '+(idxTot/1e9).toFixed(2)+'B', 'text-slate-300') : ''}
+        ${memUtil!=='' ? chip('Memory util.', memUtil||'—', 'text-slate-400') : ''}
+      </div>`;
+
+      // ── Recovery Analysis + Space Pie ──────────────────────────────────────
+      const wholeUnder = oInt('HP last cycle, whole reps: Under-replicated');
+      const wholeOver  = oInt('HP last cycle, whole reps: Over-replicated');
+      const ecMiss     = oInt('HP last cycle, EC siblings: Missing');
+      const ecDeg      = oInt('HP last cycle, EC siblings: Degraded');
+
+      // Aggregate stream counts by encoding
+      const streamStats = _snmpColToRows(tbls['HP last cycle: Stream stats'] || {});
+      const encMap = {};
+      streamStats.forEach(row => {
+        const enc = String(row['Encoding'] || 'unknown');
+        const cnt = parseInt(row['Count'] || 0);
+        encMap[enc] = (encMap[enc] || 0) + cnt;
+      });
+
+      // Under-rep detail: which encoding (by expected replica count) is affected
+      const underRepRows = _snmpColToRows(tbls['HP last cycle, whole reps: Under-replication stats'] || {});
+
+      // Encoding order: whole-reps first, then EC
+      const wholeEncOrder = [];
+      const ecEncOrder    = [];
+      Object.keys(encMap).forEach(e => {
+        if (e.startsWith('EC')) ecEncOrder.push(e);
+        else wholeEncOrder.push(e);
+      });
+      wholeEncOrder.sort();
+      ecEncOrder.sort();
+      const allEncs = [...wholeEncOrder, ...ecEncOrder];
+
+      html += `<div class="flex gap-6 items-start">`;
+
+      // Left: recovery table
+      html += `<div class="flex-1 min-w-0">`;
+      html += `<div class="text-blue-400 font-bold text-xs uppercase tracking-wide mb-1.5">Cluster Recovery Analysis</div>`;
+      if (allEncs.length) {
+        html += `<table class="w-full text-xs border-collapse">
+          <thead><tr class="text-slate-500 border-b border-slate-700">
+            <th class="text-left pb-1 pr-3">Encoding</th>
+            <th class="text-right pb-1 pr-3">Streams</th>
+            <th class="text-right pb-1 pr-3">Under-rep</th>
+            <th class="text-right pb-1 pr-3">EC missing</th>
+            <th class="text-left pb-1">Status</th>
+          </tr></thead><tbody>`;
+        allEncs.forEach(enc => {
+          const cnt = encMap[enc] || 0;
+          const isEc = enc.startsWith('EC');
+          let underCnt = 0;
+          if (!isEc) {
+            // Match by expected replica count extracted from encoding name
+            const repN = parseInt(enc.match(/\d+/)?.[0] || '0');
+            underRepRows.forEach(r => {
+              if (parseInt(r['Expected Replicas']||0) === repN) underCnt += parseInt(r['Count']||0);
+            });
+          }
+          const ecMissHere = isEc ? ecMiss : 0;
+          const ecDegHere  = isEc ? ecDeg  : 0;
+          let concern = 'ok', cClass = 'text-green-400';
+          if (underCnt > 0) { concern = 'underprotected'; cClass = 'text-red-400 font-bold'; }
+          else if (wholeOver > 0 && !isEc) { concern = 'over-replicated'; cClass = 'text-yellow-400'; }
+          else if (ecMissHere > 0) { concern = ecMissHere+' missing'; cClass = 'text-yellow-400'; }
+          else if (ecDegHere  > 0) { concern = ecDegHere+' degraded';  cClass = 'text-red-400'; }
+          html += `<tr class="border-b border-slate-900 hover:bg-slate-900/30">
+            <td class="py-1 pr-3 text-cyan-300 font-mono">${esc(enc)}</td>
+            <td class="py-1 pr-3 text-right text-slate-300">${cnt.toLocaleString()}</td>
+            <td class="py-1 pr-3 text-right ${underCnt?'text-red-400 font-bold':'text-slate-600'}">${underCnt||'—'}</td>
+            <td class="py-1 pr-3 text-right ${ecMissHere?'text-yellow-400 font-bold':'text-slate-600'}">${isEc ? (ecMissHere||'—') : '—'}</td>
+            <td class="py-1 ${cClass}">${concern}</td>
+          </tr>`;
+        });
+        html += `</tbody></table>`;
+      }
+
+      // HP health badges
+      const badgeOk   = (t) => `<span class="px-1.5 py-0.5 rounded text-xs bg-green-900/30 text-green-400">${t}</span>`;
+      const badgeWarn = (t) => `<span class="px-1.5 py-0.5 rounded text-xs bg-red-900/30 text-red-400 font-bold">${t}</span>`;
+      const badgeAmb  = (t) => `<span class="px-1.5 py-0.5 rounded text-xs bg-yellow-900/30 text-yellow-400">${t}</span>`;
+      html += `<div class="flex flex-wrap gap-1.5 mt-2">
+        ${wholeUnder ? badgeWarn(wholeUnder.toLocaleString()+' streams under-replicated') : badgeOk('No under-replication')}
+        ${wholeOver  ? badgeAmb(wholeOver.toLocaleString()+' over-replicated') : ''}
+        ${ecMiss     ? badgeAmb(ecMiss.toLocaleString()+' EC siblings missing') : badgeOk('No EC missing')}
+        ${ecDeg      ? badgeWarn(ecDeg.toLocaleString()+' EC degraded') : ''}
+      </div>`;
+      html += `</div>`;  // end left col
+
+      // Right: Space Utilization SVG pie
+      if (physGb) {
+        const avPct  = availGb / physGb * 100;
+        const lgPct  = Math.min(logSpGb / physGb * 100, 100 - avPct);
+        const ovPct  = Math.max(0, 100 - avPct - lgPct);
+        const segs = [
+          { pct: avPct, color: '#22c55e', label: 'Available '+avPct.toFixed(1)+'%' },
+          { pct: lgPct, color: '#3b82f6', label: 'Content '+lgPct.toFixed(1)+'%' },
+          { pct: ovPct, color: '#f59e0b', label: 'Overhead '+ovPct.toFixed(1)+'%' },
+        ].filter(s => s.pct > 0.3);
+
+        const toPolar = (deg, r, cx, cy) => {
+          const rad = (deg - 90) * Math.PI / 180;
+          return [cx + r * Math.cos(rad), cy + r * Math.sin(rad)];
+        };
+        const cx = 60, cy = 60, r = 50;
+        let startDeg = 0, svgSlices = '';
+        segs.forEach(s => {
+          const endDeg = startDeg + s.pct * 3.6;
+          const [x1, y1] = toPolar(startDeg, r, cx, cy);
+          const [x2, y2] = toPolar(endDeg,   r, cx, cy);
+          const large = (endDeg - startDeg) > 180 ? 1 : 0;
+          svgSlices += `<path d="M${cx} ${cy} L${x1.toFixed(1)} ${y1.toFixed(1)} A${r} ${r} 0 ${large} 1 ${x2.toFixed(1)} ${y2.toFixed(1)} Z" fill="${s.color}" stroke="#0c1524" stroke-width="1.5"/>`;
+          startDeg = endDeg;
+        });
+
+        html += `<div class="flex flex-col items-center gap-1.5 shrink-0">
+          <div class="text-blue-400 font-bold text-xs uppercase tracking-wide mb-1">Space Utilization</div>
+          <svg viewBox="0 0 120 120" width="110" height="110">${svgSlices}</svg>
+          <div class="flex flex-col gap-1">
+          ${segs.map(s => `<div class="flex items-center gap-1.5 text-xs">
+            <span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${s.color}"></span>
+            <span class="text-slate-400">${esc(s.label)}</span>
+          </div>`).join('')}
+          </div>
+        </div>`;
+      }
+
+      html += `</div>`;  // end flex (table + pie)
+      html += `</div>`;  // end cluster section
+    }
+
+    body.innerHTML = html;
+
+  // ══════════════════════════════════════════════════════════════════════════
+  } else if (name === 'volumes') {
+    let html = '';
+    if (sn) {
+      const usedPct = 100 - (parseFloat(sn.avail_pct) || 0);
+      const bc = usedPct>85?'#ef4444':usedPct>70?'#f59e0b':'#22c55e';
+      html += `<div class="flex flex-wrap gap-4 text-xs p-2 rounded bg-slate-900 mb-3">
+        <span class="text-slate-400">Total: <b class="text-white">${esc(sn.max)}</b></span>
+        <span class="text-slate-400">Utilisé: <b class="text-white">${esc(sn.used)}</b></span>
+        <span class="text-slate-400">Dispo: <b style="color:${bc}">${esc(sn.avail_pct)}</b></span>
+        <span class="text-slate-400">Streams: <b class="text-white">${esc(sn.streams)}</b></span>
+        <span class="text-slate-400">Uptime: <b class="text-white">${esc(sn.uptime)}</b></span>
+      </div>`;
+    }
+    if (volRows.length) {
+      html += `<div class="text-blue-400 font-bold text-xs mb-2">Volumes Swarm (${volRows.length})</div>
+        <table class="w-full text-xs">
+          <thead><tr class="text-left text-slate-500 border-b border-slate-700 text-xs">
+            <th class="pb-1 pr-3">Nom</th><th class="pb-1 pr-3">État</th>
+            <th class="pb-1 pr-3">Capacité</th><th class="pb-1 pr-3">Utilisation</th>
+            <th class="pb-1 pr-3">Libre</th><th class="pb-1">Streams</th>
+          </tr></thead>
+          <tbody>
+          ${volRows.map(r => {
+            const capMb  = parseInt(r['Capacity space (MB)']||0);
+            const usedMb = parseInt(r['Used space (MB)']||0);
+            const freeMb = parseInt(r['Free space (MB)']||0);
+            const strms  = parseInt(r['Used streams']||0);
+            const state  = String(r['State']||'—');
+            const stL    = state.toLowerCase();
+            const sc     = stL==='retired'?'text-slate-500':stL==='ok'?'text-green-400':'text-yellow-400';
+            const pct    = capMb ? usedMb/capMb*100 : 0;
+            const bc     = pct>85?'#ef4444':pct>70?'#f59e0b':'#22c55e';
+            return `<tr class="border-b border-slate-900 hover:bg-slate-900/50">
+              <td class="py-1 pr-3 text-cyan-300 font-mono">${esc(String(r['Name']||'—'))}</td>
+              <td class="py-1 pr-3 ${sc} font-bold">${esc(state.toUpperCase())}</td>
+              <td class="py-1 pr-3 text-slate-300">${capMb?(capMb/1024).toFixed(1)+' GB':'—'}</td>
+              <td class="py-1 pr-3"><span style="display:inline-flex;align-items:center;gap:4px;">
+                <span style="display:inline-block;width:60px;height:5px;background:#1e293b;border-radius:3px;">
+                  <span style="display:block;width:${Math.min(100,pct).toFixed(0)}%;height:5px;background:${bc};border-radius:3px;"></span>
+                </span>
+                <span class="text-slate-400 text-xs">${pct.toFixed(0)}%</span>
+              </span></td>
+              <td class="py-1 pr-3 text-green-400">${freeMb?(freeMb/1024).toFixed(1)+' GB':'—'}</td>
+              <td class="py-1 text-slate-300">${strms.toLocaleString()}</td>
+            </tr>`;
+          }).join('')}
+          </tbody></table>`;
+    } else {
+      html += `<div class="text-slate-500 italic text-xs mt-2">Pas de données de volumes — healthreport requis.</div>`;
+    }
+    body.innerHTML = html;
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════
+  } else if (name === 'hardware') {
+    let html = '';
+
+    // ── System identity ──────────────────────────────────────────────────────
+    const sysModel  = p('System_ProductName')  || o('Chassis Model','Product Name','Chassis Product Name');
+    const sysMfr    = p('System_Manufacturer') || o('Chassis Manufacturer','Manufacturer');
+    const sysSerial = p('System_SerialNumber') || o('Chassis Serial Number','Serial Number','Node Serial Number');
+    const casVer    = o('CAStor version','CAStor revision');
+    const biosStr   = [p('BIOS_Version')||o('BIOS Version'), p('BIOS_Date')||o('BIOS Date'), p('BIOS_Vendor')].filter(Boolean).join(' · ');
+
+    html += section('Identité système');
+    html += `<table class="w-full text-xs mb-2"><tbody>`;
+    html += kv('Modèle',         sysModel,  'text-white font-bold text-sm');
+    html += kv('Fabricant',      sysMfr);
+    html += kv('Numéro série',   sysSerial, 'text-slate-400 font-mono');
+    html += kv('CAStor version', casVer,    'text-cyan-300 font-bold');
+    html += kv('BIOS',           biosStr,   'text-slate-400');
+    html += `</tbody></table>`;
+
+    // ── CPUs ─────────────────────────────────────────────────────────────────
+    // Detect processor indices from Platform ID Table keys (CPU_ProcN_*)
+    const cpuNums = [...new Set(
+      Object.keys(pid)
+        .filter(k => k.startsWith('CPU_Proc'))
+        .map(k => k.match(/^CPU_Proc(\d+)_/)?.[1])
+        .filter(Boolean)
+    )].sort((a,b) => Number(a)-Number(b));
+
+    if (cpuNums.length) {
+      // Show one row per CPU; collapse if identical
+      const cpuRows = cpuNums.map(n => ({
+        type:   p(`CPU_Proc${n}_Type`),
+        cores:  p(`CPU_Proc${n}_CoresEnabled`) || p(`CPU_Proc${n}_CoresTotal`),
+        total:  p(`CPU_Proc${n}_CoresTotal`),
+        speed:  p(`CPU_Proc${n}_CurrentSpeed`),
+        max:    p(`CPU_Proc${n}_MaxSpeed`),
+        status: p(`CPU_Proc${n}_Status`),
+      }));
+      const identical = cpuRows.length > 1 && cpuRows.every(r => r.type === cpuRows[0].type);
+      html += section(`Processeur${identical ? 's (×'+cpuRows.length+')' : ''}`);
+      html += `<table class="w-full text-xs mb-2">
+        <thead><tr class="text-slate-500 border-b border-slate-700 text-left">
+          <th class="pb-1 pr-4">Modèle</th>
+          <th class="pb-1 pr-4 text-right">Cœurs</th>
+          <th class="pb-1 pr-4 text-right">Base</th>
+          <th class="pb-1 pr-4 text-right">Max</th>
+          <th class="pb-1">Statut</th>
+        </tr></thead>
+        <tbody>`;
+      const displayRows = identical ? [cpuRows[0]] : cpuRows;
+      displayRows.forEach((r, i) => {
+        const ok = r.status.toLowerCase().includes('enabled');
+        html += `<tr class="border-b border-slate-900 hover:bg-slate-900/40">
+          <td class="py-0.5 pr-4 text-white font-bold">${esc(r.type||'—')}</td>
+          <td class="py-0.5 pr-4 text-slate-300 text-right font-mono">${esc(r.cores) || esc(r.total) || '—'}</td>
+          <td class="py-0.5 pr-4 text-cyan-200 text-right font-mono">${esc(r.speed)||'—'}</td>
+          <td class="py-0.5 pr-4 text-slate-400 text-right font-mono">${esc(r.max)||'—'}</td>
+          <td class="py-0.5 ${ok?'text-green-400':'text-yellow-400'} text-xs">${esc(r.status||'—')}</td>
+        </tr>`;
+      });
+      html += `</tbody></table>`;
+    } else {
+      // Fallback to SNMP objects
+      const cpuModel = o('CPU Model','Processor Type','CPU Type');
+      const cpuCores = o('CPU Count','CPU Cores','Number of CPUs');
+      const cpuFreq  = o('CPU Speed (MHz)','CPU Speed','Processor Speed');
+      if (cpuModel || cpuCores || cpuFreq) {
+        html += section('Processeur');
+        html += `<table class="w-full text-xs mb-2"><tbody>`;
+        html += kv('Modèle',    cpuModel, 'text-white');
+        html += kv('Cores',     cpuCores, 'text-slate-300');
+        html += kv('Fréquence', cpuFreq,  'text-slate-300');
+        html += `</tbody></table>`;
+      }
+    }
+
+    // ── Memory ───────────────────────────────────────────────────────────────
+    // DIMM details from Platform ID Table (Memory_PROCXDIMMY_*)
+    const dimmKeys = [...new Set(
+      Object.keys(pid)
+        .filter(k => k.startsWith('Memory_'))
+        .map(k => k.match(/^Memory_(PROC\d+DIMM[^_]+)_/)?.[1])
+        .filter(Boolean)
+    )].sort();
+
+    if (memTotalMb || dimmKeys.length) {
+      const memAvailMb = oInt('Chassis Memory Available (MB)');
+      const arenaMb    = oInt('Chassis Arena (MB)');
+      const headMb     = oInt('Chassis Headroom (MB)');
+      html += section(`Mémoire${dimmKeys.length ? ' ('+dimmKeys.length+' DIMMs)' : ''}`);
+
+      if (memTotalMb) {
+        html += `<table class="w-full text-xs mb-1"><tbody>
+          <tr class="border-b border-slate-900"><td class="py-0.5 pr-4 text-slate-500 w-40">RAM totale</td>
+            <td class="text-white font-bold">${(memTotalMb/1024).toFixed(0)} GB</td></tr>
+          <tr class="border-b border-slate-900"><td class="py-0.5 pr-4 text-slate-500">Utilisation</td>
+            <td>${_snBar(memUsedPct, 110)} <span class="text-slate-500 ml-2">${(memAvailMb/1024).toFixed(0)} GB dispo</span></td></tr>
+          ${arenaMb ? `<tr><td class="py-0.5 pr-4 text-slate-500">Arena / Headroom</td>
+            <td class="text-slate-300">${(arenaMb/1024).toFixed(0)} GB / ${(headMb/1024).toFixed(0)} GB</td></tr>` : ''}
+        </tbody></table>`;
+      }
+
+      if (dimmKeys.length) {
+        // Group by processor
+        const byProc = {};
+        dimmKeys.forEach(slot => {
+          const proc = slot.match(/^(PROC\d+)/)?.[1] || 'PROC1';
+          if (!byProc[proc]) byProc[proc] = [];
+          byProc[proc].push({
+            slot,
+            size:   p(`Memory_${slot}_Size`),
+            type:   p(`Memory_${slot}_Type`),
+            speed:  p(`Memory_${slot}_Speed`),
+            part:   p(`Memory_${slot}_PartNumber`),
+          });
+        });
+        Object.entries(byProc).forEach(([proc, dimms]) => {
+          const totalGb = dimms.reduce((s,d) => s + (parseInt(d.size)||0), 0);
+          html += `<div class="text-slate-500 text-xs mt-2 mb-1">${proc} — ${dimms.length} slots · ${totalGb} GB</div>
+            <table class="w-full text-xs mb-2">
+            <thead><tr class="text-slate-600 border-b border-slate-800 text-left">
+              <th class="pb-0.5 pr-4">Slot</th>
+              <th class="pb-0.5 pr-4">Taille</th>
+              <th class="pb-0.5 pr-4">Type</th>
+              <th class="pb-0.5 pr-4">Vitesse</th>
+              <th class="pb-0.5">P/N</th>
+            </tr></thead><tbody>`;
+          dimms.forEach(d => {
+            html += `<tr class="border-b border-slate-900/60 hover:bg-slate-900/40">
+              <td class="py-0.5 pr-4 text-slate-500 font-mono text-xs">${esc(d.slot.replace('PROC\\d+',''))}</td>
+              <td class="py-0.5 pr-4 text-green-300 font-bold">${esc(d.size||'—')}</td>
+              <td class="py-0.5 pr-4 text-slate-300">${esc(d.type||'—')}</td>
+              <td class="py-0.5 pr-4 text-cyan-300">${esc(d.speed||'—')}</td>
+              <td class="py-0.5 text-slate-500 font-mono text-xs">${esc(d.part||'—')}</td>
+            </tr>`;
+          });
+          html += `</tbody></table>`;
+        });
+      }
+    }
+
+    // ── Network interfaces ────────────────────────────────────────────────────
+    // Ethernet from Platform ID Table + speed/driver from NIC Table
+    const ethNums = [...new Set(
+      Object.keys(pid)
+        .filter(k => k.startsWith('Ethernet_'))
+        .map(k => k.match(/^Ethernet_(\d+)_/)?.[1])
+        .filter(Boolean)
+    )].sort((a,b) => Number(a)-Number(b));
+
+    if (ethNums.length || nicRows.length) {
+      html += section(`Interfaces réseau`);
+      html += `<table class="w-full text-xs mb-2">
+        <thead><tr class="text-slate-500 border-b border-slate-700 text-left">
+          <th class="pb-1 pr-4">#</th>
+          <th class="pb-1 pr-4">Description</th>
+          <th class="pb-1 pr-4">Driver</th>
+          <th class="pb-1 pr-4">Vitesse</th>
+          <th class="pb-1 pr-4">MTU</th>
+          <th class="pb-1">Statut</th>
+        </tr></thead><tbody>`;
+
+      if (ethNums.length) {
+        // Merge Platform ID Table with NIC Table rows (matched by index)
+        ethNums.forEach((n, i) => {
+          const desc   = p(`Ethernet_${n}_Description`);
+          const status = p(`Ethernet_${n}_Status`);
+          const nicR   = nicRows[i] || {};
+          const speed  = String(nicR['NIC speed']||nicR['Linespeed']||nic['Linespeed']||'—');
+          const driver = String(nicR['NIC driver']||'—');
+          const mtu    = String(nicR['MTU']||nic['MTU']||'—');
+          const ok     = status.toLowerCase().includes('enabled');
+          html += `<tr class="border-b border-slate-900 hover:bg-slate-900/40">
+            <td class="py-0.5 pr-4 text-slate-500 font-mono">${esc(n)}</td>
+            <td class="py-0.5 pr-4 text-slate-200">${esc(desc||'—')}</td>
+            <td class="py-0.5 pr-4 text-slate-400">${esc(driver)}</td>
+            <td class="py-0.5 pr-4 text-green-300 font-bold">${esc(speed)}</td>
+            <td class="py-0.5 pr-4 text-slate-400 font-mono">${esc(mtu)}</td>
+            <td class="py-0.5 ${ok?'text-green-400':'text-slate-500'} text-xs">${esc(status||'—')}</td>
+          </tr>`;
+        });
+      } else {
+        // Fallback: NIC Table only
+        nicRows.forEach(r => {
+          html += `<tr class="border-b border-slate-900 hover:bg-slate-900/40">
+            <td class="py-0.5 pr-4 text-slate-500 font-mono">—</td>
+            <td class="py-0.5 pr-4 text-slate-200">${esc(String(r['NIC device']||'—'))}</td>
+            <td class="py-0.5 pr-4 text-slate-400">${esc(String(r['NIC driver']||'—'))}</td>
+            <td class="py-0.5 pr-4 text-green-300 font-bold">${esc(String(r['NIC speed']||r['Linespeed']||'—'))}</td>
+            <td class="py-0.5 pr-4 text-slate-400 font-mono">${esc(String(r['MTU']||'—'))}</td>
+            <td class="py-0.5 text-slate-500">—</td>
+          </tr>`;
+        });
+      }
+      html += `</tbody></table>`;
+    } else if (nic['Linespeed']) {
+      html += section('Réseau');
+      html += `<div class="text-xs text-slate-400">Linespeed: <b class="text-white">${esc(nic['Linespeed'])}</b>  MTU: <b class="text-white">${esc(nic['MTU']||'—')}</b></div>`;
+    }
+
+    if (!html) html = `<div class="text-slate-500 italic text-xs mt-2">Données hardware non disponibles — healthreport requis.</div>`;
+    body.innerHTML = html;
+
+  // ══════════════════════════════════════════════════════════════════════════
+  } else if (name === 'hp') {
+    if (!hr) { body.innerHTML = '<div class="text-slate-500 italic text-xs">healthreport requis</div>'; return; }
+    const fmtTs = (ts) => ts ? new Date(ts*1000).toLocaleString('fr-FR') : '—';
+    const fmtDur = (s) => {
+      if (!s) return '—';
+      const h = Math.floor(s/3600), m = Math.floor((s%3600)/60);
+      return h ? `${h}h${m.toString().padStart(2,'0')}m` : `${m}m`;
+    };
+    const hpStreamRows = _snmpColToRows(tbls['HP last cycle: Stream stats'] || {});
+    const hpUrRows     = _snmpColToRows(tbls['HP last cycle, whole reps: Under-replication stats'] || {});
+    const hpOnStream   = _snmpColToRows(tbls['HP ongoing cycle: Stream stats'] || {});
+
+    const hpState   = o('HP State');
+    const stOk      = hpState.toLowerCase().includes('running');
+    const cycleNum  = oInt('HP ongoing cycle: Cycle number');
+    const lastNum   = oInt('HP last cycle: Cycle number');
+    const lastStart = objs['HP last cycle: Cycle start (secs since epoch)'] || 0;
+    const lastTime  = oInt('HP last cycle: Cycle time');
+    const onStart   = objs['HP ongoing cycle: Cycle start (secs since epoch)'] || 0;
+    const onTime    = oInt('HP ongoing cycle: Cycle time');
+
+    let html = `<div class="space-y-5">`;
+
+    // ── Status header ──────────────────────────────────────────────────────
+    html += `<div class="flex flex-wrap gap-4 items-center px-3 py-2 rounded bg-slate-900 border border-slate-800">
+      <span class="text-sm font-bold ${stOk?'text-green-400':'text-red-400'}">${esc(hpState||'—')}</span>
+      <span class="text-slate-500 text-xs">Cycle delay: <b class="text-slate-300">${oInt('HP Cycle delay')}s</b></span>
+      <span class="text-slate-500 text-xs">Exam queue: <b class="text-slate-300">${oInt('HP Exam queue count')}</b></span>
+      <span class="text-slate-500 text-xs">Repl queue: <b class="text-slate-300">${oInt('HP Replication queue count')}</b></span>
+      <span class="text-slate-500 text-xs ml-auto">PID ${oInt('Process pid')} · ${oInt('Process size (MB)')} MB / ${oInt('Process target size (MB)')} MB cible</span>
+    </div>`;
+
+    // ── Ongoing cycle ──────────────────────────────────────────────────────
+    const onExam  = oInt('HP ongoing cycle: Streams examined');
+    const onProc  = oInt('HP ongoing cycle: Streams processed');
+    const onVerif = oInt('HP ongoing cycle: Streams verified');
+    const onRelo  = oInt('HP ongoing cycle: Streams relocated');
+    const onPct   = onExam ? onProc/onExam*100 : 0;
+    if (onExam || cycleNum) {
+      html += section(`Cycle en cours #${cycleNum}  —  démarré ${fmtTs(onStart)}  (durée ${fmtDur(onTime)})`);
+      html += `<div class="mb-2">${_snBar(onPct, 200)} <span class="text-slate-500 ml-2">${onProc.toLocaleString()} / ${onExam.toLocaleString()} streams traités</span></div>`;
+      html += `<div class="flex flex-wrap gap-x-6 gap-y-0.5 text-xs mb-3">
+        <span class="text-slate-500">Vérifiés: <b class="text-slate-300">${onVerif.toLocaleString()}</b></span>
+        <span class="text-slate-500">Relocalisés: <b class="text-slate-300">${onRelo.toLocaleString()}</b></span>
+        <span class="text-slate-500">Offloaded: <b class="text-slate-300">${oInt('HP ongoing cycle: Streams offloaded').toLocaleString()}</b></span>
+      </div>`;
+      // Whole reps ongoing
+      const owUR = oInt('HP ongoing cycle, whole reps: Under-replicated');
+      const owOR = oInt('HP ongoing cycle, whole reps: Over-replicated');
+      const owMC = oInt('HP ongoing cycle, whole reps: Multicasts total');
+      const oecT = oInt('HP ongoing cycle, EC siblings: Total');
+      const oecD = oInt('HP ongoing cycle, EC siblings: Degraded');
+      html += `<div class="grid grid-cols-2 gap-x-6 text-xs">
+        <div><span class="text-slate-500">Whole reps — Sous-répliqués: </span><b class="${owUR?'text-red-400':'text-green-400'}">${owUR}</b>
+          <span class="text-slate-500 ml-3">Sur-répliqués: </span><b class="${owOR?'text-yellow-400':'text-slate-300'}">${owOR}</b>
+          <span class="text-slate-500 ml-3">Multicasts: </span><b class="text-slate-300">${owMC}</b></div>
+        <div><span class="text-slate-500">EC siblings — Total: </span><b class="text-slate-300">${oecT.toLocaleString()}</b>
+          <span class="text-slate-500 ml-3">Dégradés: </span><b class="${oecD?'text-red-400':'text-green-400'}">${oecD}</b></div>
+      </div>`;
+    }
+
+    // ── Last completed cycle ───────────────────────────────────────────────
+    const lExam  = oInt('HP last cycle: Streams examined');
+    const lProc  = oInt('HP last cycle: Streams processed');
+    const lVerif = oInt('HP last cycle: Streams verified');
+    const lRelo  = oInt('HP last cycle: Streams relocated');
+    const lOff   = oInt('HP last cycle: Streams offloaded');
+    const lPct   = lExam ? lProc/lExam*100 : 0;
+    const lwUR   = oInt('HP last cycle, whole reps: Under-replicated');
+    const lwOR   = oInt('HP last cycle, whole reps: Over-replicated');
+    const lwTrimN= oInt('HP last cycle, whole reps: Trims needed');
+    const lwTrimR= oInt('HP last cycle, whole reps: Trims requested');
+    const lwTrimL= oInt('HP last cycle, whole reps: Trims decided locally');
+    const lwMCTot= oInt('HP last cycle, whole reps: Multicasts total');
+    const lwMCFR = oInt('HP last cycle, whole reps: Multicasts frequency setting');
+    const lwMCUA = oInt('HP last cycle, whole reps: Unicasts total');
+    const lwTFR  = oInt('HP last cycle, whole reps: Multicasts too few replicas');
+    const lwTFH  = oInt('HP last cycle, whole reps: Multicasts too few hints');
+    const lwTFA  = oInt('HP last cycle, whole reps: Multicasts too few answers');
+    const lecT   = oInt('HP last cycle, EC siblings: Total');
+    const lecD   = oInt('HP last cycle, EC siblings: Degraded');
+    const lecM   = oInt('HP last cycle, EC siblings: Missing');
+    const lecR   = oInt('HP last cycle, EC siblings: Relocated');
+    const lecMC  = oInt('HP last cycle, EC siblings: Multicasts');
+
+    if (lExam || lastNum) {
+      html += section(`Dernier cycle terminé #${lastNum}  —  ${fmtTs(lastStart)}  (durée ${fmtDur(lastTime)})`);
+      html += `<div class="mb-2">${_snBar(lPct, 200)} <span class="text-slate-500 ml-2">${lProc.toLocaleString()} / ${lExam.toLocaleString()} streams</span></div>`;
+      html += `<div class="flex flex-wrap gap-x-6 gap-y-0.5 text-xs mb-3">
+        <span class="text-slate-500">Vérifiés: <b class="text-slate-300">${lVerif.toLocaleString()}</b></span>
+        <span class="text-slate-500">Relocalisés: <b class="text-slate-300">${lRelo.toLocaleString()}</b></span>
+        <span class="text-slate-500">Offloaded: <b class="text-slate-300">${lOff.toLocaleString()}</b></span>
+      </div>`;
+
+      // Whole reps
+      html += `<div class="grid grid-cols-2 gap-x-6 gap-y-3 text-xs">
+        <div>
+          ${section('Whole reps', 'text-blue-400')}
+          <table class="w-full"><tbody>
+            <tr><td class="py-0.5 pr-4 text-slate-500 w-36">Sous-répliqués</td>
+              <td class="${lwUR?'text-red-400 font-bold':'text-green-400'}">${lwUR.toLocaleString()}</td></tr>
+            <tr><td class="py-0.5 pr-4 text-slate-500">Sur-répliqués</td>
+              <td class="${lwOR?'text-yellow-400':'text-green-400'}">${lwOR.toLocaleString()}</td></tr>
+            <tr><td class="py-0.5 pr-4 text-slate-500">Trims nécessaires</td>
+              <td class="text-slate-300">${lwTrimN} req · ${lwTrimR} dem · ${lwTrimL} local</td></tr>
+            <tr><td class="py-0.5 pr-4 text-slate-500">Multicasts</td>
+              <td class="text-slate-300">${lwMCTot.toLocaleString()} <span class="text-slate-600">(freq: ${lwMCFR})</span></td></tr>
+            <tr><td class="py-0.5 pr-4 text-slate-500 text-xs">↳ trop peu répliques</td>
+              <td class="${lwTFR?'text-orange-400':'text-slate-500'}">${lwTFR}</td></tr>
+            <tr><td class="py-0.5 pr-4 text-slate-500 text-xs">↳ trop peu hints</td>
+              <td class="${lwTFH?'text-orange-400':'text-slate-500'}">${lwTFH}</td></tr>
+            <tr><td class="py-0.5 pr-4 text-slate-500 text-xs">↳ trop peu réponses</td>
+              <td class="${lwTFA?'text-orange-400':'text-slate-500'}">${lwTFA}</td></tr>
+            <tr><td class="py-0.5 pr-4 text-slate-500">Unicasts</td>
+              <td class="text-slate-300">${lwMCUA.toLocaleString()}</td></tr>
+          </tbody></table>
+        </div>
+        <div>
+          ${section('EC Siblings', 'text-purple-400')}
+          <table class="w-full"><tbody>
+            <tr><td class="py-0.5 pr-4 text-slate-500 w-32">Total</td>
+              <td class="text-slate-300">${lecT.toLocaleString()}</td></tr>
+            <tr><td class="py-0.5 pr-4 text-slate-500">Dégradés</td>
+              <td class="${lecD?'text-red-400 font-bold':'text-green-400'}">${lecD.toLocaleString()}</td></tr>
+            <tr><td class="py-0.5 pr-4 text-slate-500">Manquants</td>
+              <td class="${lecM?'text-red-400 font-bold':'text-green-400'}">${lecM.toLocaleString()}</td></tr>
+            <tr><td class="py-0.5 pr-4 text-slate-500">Relocalisés</td>
+              <td class="text-slate-300">${lecR.toLocaleString()}</td></tr>
+            <tr><td class="py-0.5 pr-4 text-slate-500">Multicasts</td>
+              <td class="text-slate-300">${lecMC.toLocaleString()}</td></tr>
+          </tbody></table>
+        </div>
+      </div>`;
+    }
+
+    // ── Stream encoding breakdown ──────────────────────────────────────────
+    if (hpStreamRows.length) {
+      html += section('Répartition streams (encodage)');
+      html += `<table class="w-full text-xs mb-2">
+        <thead><tr class="text-slate-500 border-b border-slate-700 text-left">
+          <th class="pb-1 pr-4">Encodage</th><th class="pb-1 pr-4">Type</th>
+          <th class="pb-1 pr-4 text-right">Count</th><th class="pb-1 pr-4 text-right">Size Bound</th>
+          <th class="pb-1 text-right">Consolidations</th>
+        </tr></thead><tbody>`;
+      hpStreamRows.forEach(r => {
+        html += `<tr class="border-b border-slate-900 hover:bg-slate-900/40">
+          <td class="py-0.5 pr-4 text-cyan-300">${esc(String(r['Encoding']||'—'))}</td>
+          <td class="py-0.5 pr-4 text-slate-400">${esc(String(r['Stream Type']||'—'))}</td>
+          <td class="py-0.5 pr-4 text-white text-right font-mono">${Number(r['Count']||0).toLocaleString()}</td>
+          <td class="py-0.5 pr-4 text-slate-400 text-right font-mono">${Number(r['Size Bound']||0).toLocaleString()}</td>
+          <td class="py-0.5 text-slate-500 text-right font-mono">${Number(r['Need consolidation']||0)} / ${Number(r['Performed consolidation']||0)}</td>
+        </tr>`;
+      });
+      html += `</tbody></table>`;
+    }
+
+    // ── Under-replication details ──────────────────────────────────────────
+    if (hpUrRows.length) {
+      html += section('Détail sous-réplication');
+      html += `<table class="w-full text-xs mb-2">
+        <thead><tr class="text-slate-500 border-b border-slate-700 text-left">
+          <th class="pb-1 pr-4">Répliques attendues</th>
+          <th class="pb-1 pr-4">Répliques actuelles</th>
+          <th class="pb-1 text-right">Streams concernés</th>
+        </tr></thead><tbody>`;
+      hpUrRows.forEach(r => {
+        html += `<tr class="border-b border-slate-900 hover:bg-slate-900/40">
+          <td class="py-0.5 pr-4 text-slate-300 font-mono">${esc(String(r['Expected Replicas']||'—'))}</td>
+          <td class="py-0.5 pr-4 text-red-400 font-mono font-bold">${esc(String(r['Actual Replicas']||'—'))}</td>
+          <td class="py-0.5 text-white text-right font-mono">${Number(r['Count']||0).toLocaleString()}</td>
+        </tr>`;
+      });
+      html += `</tbody></table>`;
+    }
+
+    html += '</div>';
+    body.innerHTML = html;
+
+  // ══════════════════════════════════════════════════════════════════════════
+  } else if (name === 'feeds') {
+    if (!hr) { body.innerHTML = '<div class="text-slate-500 italic text-xs">healthreport requis</div>'; return; }
+    const feedRows = _snmpColToRows(tbls['Feed Table'] || {});
+    const fmtTs2 = (ts) => ts ? new Date(ts*1000).toLocaleString('fr-FR') : '—';
+
+    if (!feedRows.length) {
+      body.innerHTML = '<div class="text-slate-500 italic text-xs mt-2">Aucun feed configuré sur ce nœud.</div>';
+      return;
+    }
+
+    // Parse feedDefinition string (Python dict notation) for key fields
+    const parseFeedDef = (defStr) => {
+      const out = {};
+      if (!defStr) return out;
+      try {
+        const m = defStr.match(/'host':\s*'([^']+)'/);   if (m) out.host = m[1];
+        const m2 = defStr.match(/'port':\s*(\d+)/);       if (m2) out.port = m2[1];
+        const m3 = defStr.match(/'indexAlias':\s*'([^']+)'/); if (m3) out.indexAlias = m3[1];
+        const m4 = defStr.match(/'clusterName':\s*'([^']+)'/); if (m4) out.clusterName = m4[1];
+        const m5 = defStr.match(/'scope':\s*'([^']+)'/); if (m5) out.scope = m5[1];
+        const m6 = defStr.match(/'domains':\s*\[([^\]]*)\]/); if (m6) out.domains = m6[1].replace(/'/g,'').trim();
+        const m7 = defStr.match(/'batchSize':\s*(\d+)/); if (m7) out.batchSize = m7[1];
+        const m8 = defStr.match(/'pushThreads':\s*(\d+)/); if (m8) out.pushThreads = m8[1];
+        const m9 = defStr.match(/'lastchanged':\s*'([^']+)'/); if (m9) out.lastchanged = m9[1];
+      } catch(e) {}
+      return out;
+    };
+
+    let html = '<div class="space-y-4">';
+    feedRows.forEach(f => {
+      const st = String(f['feedState']||'').toLowerCase();
+      const stCol = st==='ok'?'bg-green-900/50 text-green-300 border-green-800':
+                    st==='blocked'?'bg-red-900/50 text-red-300 border-red-800':
+                    st==='paused'?'bg-yellow-900/50 text-yellow-300 border-yellow-800':
+                    'bg-slate-800 text-slate-400 border-slate-700';
+      const pst = String(f['feedPluginState']||'');
+      const pstOk = pst.toLowerCase().includes('idle') || pst.toLowerCase().includes('green');
+      const def = parseFeedDef(String(f['feedDefinition']||''));
+      const lastSucc = Number(f['feedLastSuccess']||0);
+      const lastFailE = Number(f['feedLastExistFailure']||0);
+      const failCause = String(f['feedLastExistFailureCause']||f['feedLastVersionedFailureCause']||f['feedLastDeleteFailureCause']||'');
+      const qInSvc = Number(f['feedQueueInService']||0);
+      const estClear = Number(f['feedEstBacklogClearTime']||0);
+      const spm = Number(f['feedStreamsPerMinLastHour']||0);
+
+      html += `<div class="rounded-lg border ${st==='ok'?'border-slate-700':'st==="blocked"?border-red-800:border-yellow-800'} bg-slate-900/50 overflow-hidden">
+        <div class="flex items-center gap-3 px-4 py-2 border-b border-slate-800">
+          <span class="font-bold text-white text-sm">${esc(String(f['feedName']||'—'))}</span>
+          <span class="text-slate-500 text-xs">${esc(String(f['feedType']||''))}</span>
+          <span class="ml-auto px-2 py-0.5 rounded-full text-xs border font-bold ${stCol}">${esc(String(f['feedState']||'').toUpperCase())}</span>
+        </div>
+        <div class="px-4 py-3 grid grid-cols-2 gap-x-8 gap-y-1 text-xs">
+          <div>
+            <div class="text-slate-500 mb-1">Plugin</div>
+            <div class="${pstOk?'text-green-300':'text-orange-300'} font-mono">${esc(pst||'—')}</div>
+            ${def.host ? `<div class="text-slate-500 mt-1">Destination</div>
+            <div class="text-slate-300 font-mono">${esc(def.host)}:${esc(def.port||'')}</div>
+            ${def.indexAlias?`<div class="text-slate-400 text-xs">${esc(def.indexAlias)}</div>`:''}
+            ${def.clusterName?`<div class="text-slate-400 text-xs">→ ${esc(def.clusterName)}</div>`:''}
+            ${def.scope?`<div class="text-slate-500 text-xs">Scope: ${esc(def.scope)} ${def.domains?'['+esc(def.domains)+']':''}</div>`:''}` : ''}
+            ${def.batchSize?`<div class="text-slate-500 mt-1">Batch: <b class="text-slate-300">${esc(def.batchSize)}</b> · Threads: <b class="text-slate-300">${esc(def.pushThreads||'?')}</b></div>`:''}
+            ${def.lastchanged?`<div class="text-slate-600 text-xs mt-1">Modifié: ${esc(def.lastchanged)}</div>`:''}
+          </div>
+          <div>
+            <div class="text-slate-500 mb-1">Activité</div>
+            <table class="w-full text-xs"><tbody>
+              <tr><td class="pr-3 text-slate-500 w-20">Versioned</td>
+                <td class="text-green-400">${Number(f['feedNodeVersionedSuccess']||0).toLocaleString()} ✓</td>
+                <td class="${Number(f['feedNodeVersionedFailing']||0)?'text-red-400 font-bold':'text-slate-600'}">${Number(f['feedNodeVersionedFailing']||0)} ✗</td>
+                <td class="text-slate-600">${Number(f['feedNodeVersionedUnprocessed']||0)} pend.</td></tr>
+              <tr><td class="pr-3 text-slate-500">Exists</td>
+                <td class="text-green-400">${Number(f['feedNodeExistsSuccess']||0).toLocaleString()} ✓</td>
+                <td class="${Number(f['feedNodeExistsFailing']||0)?'text-red-400 font-bold':'text-slate-600'}">${Number(f['feedNodeExistsFailing']||0)} ✗</td>
+                <td class="text-slate-600">${Number(f['feedNodeExistsUnprocessed']||0)} pend.</td></tr>
+              <tr><td class="pr-3 text-slate-500">Deletes</td>
+                <td class="text-green-400">${Number(f['feedNodeDeletesSuccess']||0).toLocaleString()} ✓</td>
+                <td class="${Number(f['feedNodeDeletesFailing']||0)?'text-red-400 font-bold':'text-slate-600'}">${Number(f['feedNodeDeletesFailing']||0)} ✗</td>
+                <td class="text-slate-600">${Number(f['feedNodeDeletesUnprocessed']||0)} pend.</td></tr>
+            </tbody></table>
+            <div class="flex flex-wrap gap-x-4 gap-y-0.5 text-xs mt-2 text-slate-500">
+              <span>Remote: <b class="text-cyan-300">${Number(f['feedPluginRemoteSuccessTransfer']||0).toLocaleString()}</b> transf · <b class="text-slate-400">${Number(f['feedPluginRemoteSuccessDuplicate']||0).toLocaleString()}</b> dup · <b class="${Number(f['feedPluginRemoteFailure']||0)?'text-red-400':''}">${Number(f['feedPluginRemoteFailure']||0)}</b> err</span>
+              <span>Streams/min: <b class="text-slate-300">${spm}</b></span>
+              ${qInSvc ? `<span class="text-yellow-400">Queue: ${qInSvc} ${estClear?'(clear: '+Math.round(estClear/3600)+'h)':''}</span>` : ''}
+            </div>
+            <div class="mt-2 text-xs">
+              <span class="text-slate-500">Last success: </span>
+              <span class="${lastSucc?'text-green-400':'text-slate-600'}">${fmtTs2(lastSucc)}</span>
+            </div>
+          </div>
+        </div>
+        ${failCause ? `<div class="px-4 py-2 border-t border-red-900/50 bg-red-900/10">
+          <div class="text-red-400 text-xs font-bold mb-1">Dernière erreur (${fmtTs2(Math.max(lastFailE, Number(f['feedLastVersionedFailure']||0), Number(f['feedLastDeleteFailure']||0)))})</div>
+          <div class="text-red-300 text-xs font-mono whitespace-pre-wrap break-all">${esc(failCause.substring(0,500))}</div>
+        </div>` : ''}
+      </div>`;
+    });
+    html += '</div>';
+    body.innerHTML = html;
+
+  // ══════════════════════════════════════════════════════════════════════════
+  } else if (name === 'defrag') {
+    let html = '<div class="space-y-5">';
+
+    const fmtTS = (ts) => {
+      if (!ts) return '—';
+      try { return new Date(Number(ts) * 1000).toLocaleString('fr-FR', {dateStyle:'short',timeStyle:'medium'}); }
+      catch(e) { return String(ts); }
+    };
+    const fmtMb = (v) => (v !== undefined && v !== null && v !== '') ? Number(v).toLocaleString()+' MB' : '—';
+    const fmtSec = (v) => {
+      const n = parseInt(v || 0);
+      if (!n) return '—';
+      return n < 60 ? n+'s' : Math.floor(n/60)+'m '+(n%60)+'s';
+    };
+
+    const ongoingRows = _snmpColToRows(tbls['Volumes Ongoing Defrag'] || {});
+    const lastRows    = _snmpColToRows(tbls['Volumes Last Defrag']    || {});
+
+    const defragTable = (rows, isLast) => {
+      if (!rows.length) return '<div class="text-slate-500 text-xs italic px-1">Aucune donnée</div>';
+      return `<div class="overflow-x-auto">
+        <table class="text-xs border-collapse" style="min-width:900px">
+          <thead><tr class="text-slate-500 border-b border-slate-700" style="font-size:10px">
+            <th class="text-left pb-1 pr-3 whitespace-nowrap">Volume</th>
+            ${isLast ? '<th class="text-left pb-1 pr-3">Résultat</th>' : '<th class="text-left pb-1 pr-3">État</th>'}
+            <th class="text-left pb-1 pr-3 whitespace-nowrap">Début</th>
+            <th class="text-right pb-1 pr-3">Durée</th>
+            <th class="text-right pb-1 pr-3">MB traités</th>
+            <th class="text-right pb-1 pr-3">Trapped start</th>
+            <th class="text-right pb-1 pr-3">${isLast ? 'Trapped end' : 'Trapped now'}</th>
+            <th class="text-right pb-1 pr-3">Freed</th>
+            <th class="text-right pb-1 pr-3">Str. disk</th>
+            <th class="text-right pb-1 pr-3">Str. proc.</th>
+            <th class="text-right pb-1">Relocated disk</th>
+          </tr></thead>
+          <tbody>
+          ${rows.map(r => {
+            const stateRaw = String(r['State'] || r['Termination state'] || '—');
+            const sc = stateRaw === 'running' ? 'text-blue-400' : stateRaw === 'goal met' ? 'text-green-400' : stateRaw.includes('err') ? 'text-red-400' : 'text-slate-400';
+            const trStart   = parseInt(r['Trapped MB at start'] || 0);
+            const trNowEnd  = parseInt(r[isLast ? 'Trapped MB at end' : 'Trapped MB currently'] || 0);
+            const trFreed   = parseInt(r['Trapped MB freed'] || 0);
+            return `<tr class="border-b border-slate-900 hover:bg-slate-900/30">
+              <td class="py-1 pr-3 text-cyan-300 font-mono whitespace-nowrap">${esc(String(r['Volume name']||'—'))}</td>
+              <td class="py-1 pr-3 ${sc} font-bold whitespace-nowrap">${esc(stateRaw)}</td>
+              <td class="py-1 pr-3 text-slate-400 whitespace-nowrap">${fmtTS(r['Start time'])}</td>
+              <td class="py-1 pr-3 text-right font-mono text-slate-300">${fmtSec(r['Run time'])}</td>
+              <td class="py-1 pr-3 text-right text-slate-300">${fmtMb(r['MB processed'])}</td>
+              <td class="py-1 pr-3 text-right text-slate-400">${fmtMb(trStart)}</td>
+              <td class="py-1 pr-3 text-right text-slate-300">${fmtMb(trNowEnd)}</td>
+              <td class="py-1 pr-3 text-right ${trFreed>0?'text-green-400':'text-slate-600'}">${trFreed?fmtMb(trFreed):'—'}</td>
+              <td class="py-1 pr-3 text-right text-slate-300">${parseInt(r['Streams opened from disk']||0).toLocaleString()}</td>
+              <td class="py-1 pr-3 text-right text-slate-300">${parseInt(r['Streams processed']||0).toLocaleString()}</td>
+              <td class="py-1 text-right text-slate-300">${parseInt(r['Streams relocated on disk']||0).toLocaleString()}</td>
+            </tr>`;
+          }).join('')}
+          </tbody>
+        </table>
+      </div>`;
+    };
+
+    html += `<div>
+      ${section('Defrags en cours ('+ongoingRows.length+')')}
+      ${defragTable(ongoingRows, false)}
+    </div>`;
+    html += `<div>
+      ${section('Dernier cycle de defrag ('+lastRows.length+')')}
+      ${defragTable(lastRows, true)}
+    </div>`;
+    html += '</div>';
+    body.innerHTML = html;
+
+  } else if (name === 'alerts') {
+    let html = '<div class="space-y-4">';
+
+    // Cluster summary (keep here for context)
+    const clState   = o('Cluster: State');
+    const clLicGb   = oInt('Cluster: Total GBytes Licensed Capacity');
+    const clAvailGb = oInt('Cluster: Total GBytes available');
+    const clObjs    = oInt('Cluster: Total Logical Objects');
+    if (clState) {
+      const sc = clState.toLowerCase()==='ok' ? 'text-green-400' : 'text-yellow-400';
+      html += `<div>${section('Cluster Swarm')}
+        <table class="w-full text-xs"><tbody>
+          <tr class="border-b border-slate-900"><td class="py-1 pr-6 text-slate-500 w-48">État</td>
+            <td class="${sc} font-bold">${esc(clState.toUpperCase())}</td></tr>
+          ${clLicGb ? `<tr class="border-b border-slate-900"><td class="py-1 pr-6 text-slate-500">Capacité licenciée</td>
+            <td class="text-white">${(clLicGb/1024).toFixed(1)} TB <span class="text-slate-500">(${(clAvailGb/1024).toFixed(1)} TB dispo)</span></td></tr>` : ''}
+          ${clObjs ? `<tr><td class="py-1 pr-6 text-slate-500">Objets logiques</td>
+            <td class="text-cyan-300">${clObjs.toLocaleString()}</td></tr>` : ''}
+        </tbody></table></div>`;
+    }
+
+    // Announcements
+    if (annRows.length) {
+      const errCount = annRows.filter(r=>String(r['Severity']||'').toLowerCase()==='error').length;
+      html += `<div>
+        <div class="${errCount?'text-red-400':'text-orange-400'} font-bold text-xs uppercase tracking-wide mb-2 mt-4 border-b border-slate-800 pb-0.5">
+          Annonces (${annRows.length})${errCount ? ` — ${errCount} erreur${errCount>1?'s':''}` : ''}
+        </div>
+        <div class="rounded border border-slate-800 overflow-hidden">
+          ${annRows.map(r => {
+            const sev = String(r['Severity']||'').toLowerCase();
+            const col = sev==='error' ? 'text-red-400' : sev==='warning' ? 'text-yellow-400' : 'text-slate-400';
+            const bg  = sev==='error' ? 'bg-red-900/10' : '';
+            return `<div class="flex gap-3 text-xs py-1 px-2 border-b border-slate-900 hover:bg-slate-900/50 ${bg}">
+              <span class="${col} font-mono font-bold w-20 shrink-0">${esc(String(r['Severity']||r['Code']||''))}</span>
+              <span class="text-slate-400 font-mono w-16 shrink-0">${esc(String(r['Code']||''))}</span>
+              <span class="text-slate-300">${esc(String(r['Text']||''))}</span>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+    } else {
+      html += `<div class="flex items-center gap-2 text-green-400 text-xs p-2 rounded bg-green-900/10 border border-green-900 mt-2">
+        <span class="font-bold">✓</span> Aucune annonce active</div>`;
+    }
+
+    html += '</div>';
+    body.innerHTML = html;
+  }
+}
+
+function closeSnModal(event) {
+  if (event && event.type === 'click' &&
+      event.target !== document.getElementById('sn-modal')) return;
+  document.getElementById('sn-modal').classList.add('hidden');
+}
+
+// ─── Node detail modal (3 tabs: Connexions / Packages RPM / Config Files) ─
+let _connCurrentRes = null;
+let _connIpToName = {};
+let _connActiveTab = 'connections';
+
+function openConnModal(res) {
+  _connCurrentRes = res;
+  const allNodes = _auditResultsCache;
+
+  // IP → node name map
+  _connIpToName = {};
+  allNodes.forEach(r => {
+    _connIpToName[r.server_ip] = r.server_name;
+    (r.network_interfaces || []).forEach(ni => { if (ni.ip) _connIpToName[ni.ip] = r.server_name; });
+  });
+
+  document.getElementById('conn-modal-title').textContent =
+    `${res.server_name} — ${res.server_ip}`;
+  document.getElementById('conn-modal-subtitle').textContent =
+    (res.roles || []).map(r => r.role).join(' · ') || 'UNKNOWN';
+  document.getElementById('conn-modal-os').textContent =
+    [res.os, res.kernel ? `kernel ${res.kernel}` : '', res.uptime_sec ? `up ${Math.floor(res.uptime_sec/3600)}h` : '']
+    .filter(Boolean).join('  ·  ');
+
+  // Show/hide configs tab
+  const hasCfg = Object.keys(res.config_contents || {}).length > 0;
+  document.getElementById('conn-tab-configs').classList.toggle('hidden', !hasCfg);
+
+  // Show/hide ES tabs
+  const isEs = (res.roles || []).some(r => r.role === 'ELASTICSEARCH');
+  const hasEsData = !!(res.es_cat_health || res.es_cat_indices || res.es_cluster_name);
+  const hasEsHealth = !!(res.es_cat_health);
+  const hasEsIdx    = !!(res.es_cat_indices);
+  document.getElementById('conn-tab-es-overview').classList.toggle('hidden', !isEs && !hasEsData);
+  document.getElementById('conn-tab-es-nodes').classList.toggle('hidden', !res.es_cat_nodes);
+  document.getElementById('conn-tab-es-indices').classList.toggle('hidden', !hasEsIdx);
+  document.getElementById('conn-tab-es-alloc').classList.toggle('hidden', !(res.es_cat_alloc || res.es_disk_info));
+
+  document.getElementById('conn-modal').classList.remove('hidden');
+  connTab(isEs && hasEsData ? 'es-overview' : 'connections');
+}
+
+function connTab(name) {
+  _connActiveTab = name;
+  ['connections','packages','configs','es-overview','es-nodes','es-indices','es-alloc'].forEach(t => {
+    const el = document.getElementById(`conn-tab-${t}`);
+    if (el) el.classList.toggle('active', t === name);
+  });
+  const res = _connCurrentRes;
+  if (!res) return;
+  const body = document.getElementById('conn-modal-body');
+
+  if (name === 'connections') {
+    const allNodes = _auditResultsCache;
+    const myIps = new Set([res.server_ip]);
+    (res.network_interfaces || []).forEach(ni => { if (ni.ip) myIps.add(ni.ip); });
+
+    const cfgOut = [];
+    (res.haproxy_backends || []).forEach(be =>
+      cfgOut.push({ target: be.ip, port: be.port || 'http', label: 'HAProxy backend' }));
+    (res.gw_cluster_ips || []).forEach(addr => {
+      const [ip, port] = addr.split(':');
+      cfgOut.push({ target: ip, port: port || '?', label: 'Cluster entry' });
+    });
+    (res.gw_es_ips || []).forEach(addr => {
+      const [ip, port] = addr.split(':');
+      cfgOut.push({ target: ip, port: port || '9200', label: 'ES endpoint' });
+    });
+    (res.gw_lcs_ips || []).forEach(addr => {
+      const [ip, port] = addr.split(':');
+      cfgOut.push({ target: ip, port: port || '?', label: 'LCS endpoint' });
+    });
+    (res.es_seed_hosts || []).forEach(addr => {
+      const [ip, port] = addr.split(':');
+      cfgOut.push({ target: ip, port: port || '9300', label: 'ES seed' });
+    });
+
+    const liveOut = (res.connections || [])
+      .filter(c => c.remote_addr in _connIpToName)
+      .map(c => ({ target: c.remote_addr, port: c.remote_port, localPort: c.local_port }));
+
+    const liveIn = [];
+    allNodes.forEach(r => {
+      if (r.server_id === res.server_id) return;
+      (r.connections || []).forEach(c => {
+        if (myIps.has(c.remote_addr))
+          liveIn.push({ source: r.server_ip, sourceName: r.server_name,
+            srcPort: c.local_port, dstPort: c.remote_port });
+      });
+    });
+
+    const rows = (items, render) => items.length
+      ? items.map(render).join('') : '<div class="text-slate-600 italic py-1">aucune</div>';
+
+    body.innerHTML = `<div class="space-y-4">
+      <div>
+        <div class="text-blue-400 font-bold mb-1">Sortantes — config</div>
+        ${rows(cfgOut, c => `<div class="flex items-center gap-2 py-0.5">
+          <span class="text-blue-400">→</span>
+          <span class="text-slate-300">${esc(c.target)}</span><span class="text-slate-500">:${esc(String(c.port))}</span>
+          <span class="text-slate-600 ml-auto text-right">${esc(_connIpToName[c.target]||'')}</span>
+          <span class="bg-slate-800 px-1 rounded text-slate-500">${esc(c.label)}</span></div>`)}
+      </div>
+      <div>
+        <div class="text-green-400 font-bold mb-1">Sortantes — live TCP</div>
+        ${rows(liveOut, c => `<div class="flex items-center gap-2 py-0.5">
+          <span class="text-green-400">→</span>
+          <span class="text-slate-300">${esc(c.target)}</span><span class="text-slate-500">:${esc(String(c.port))}</span>
+          <span class="text-slate-600 text-xs">(local:${esc(String(c.localPort))})</span>
+          <span class="text-slate-600 ml-auto">${esc(_connIpToName[c.target]||'')}</span></div>`)}
+      </div>
+      <div>
+        <div class="text-orange-400 font-bold mb-1">Entrantes — live TCP</div>
+        ${rows(liveIn, c => `<div class="flex items-center gap-2 py-0.5">
+          <span class="text-orange-400">←</span>
+          <span class="text-slate-300">${esc(c.source)}</span><span class="text-slate-500">:${esc(String(c.srcPort))}</span>
+          <span class="text-slate-600 text-xs">→ :${esc(String(c.dstPort))}</span>
+          <span class="text-slate-600 ml-auto">${esc(c.sourceName)}</span></div>`)}
+      </div></div>`;
+
+  } else if (name === 'packages') {
+    const pkgs = res.installed_packages || [];
+    if (!pkgs.length) {
+      body.innerHTML = '<div class="text-slate-600 italic">Aucun package RPM collecté</div>';
+      return;
+    }
+    // Group by name prefix (caringo-, swarm-, elastic, haproxy, etc.)
+    const sorted = [...pkgs].sort((a, b) => a.name.localeCompare(b.name));
+    body.innerHTML = `<table class="w-full text-xs">
+      <thead><tr class="text-left text-slate-500 border-b border-slate-800">
+        <th class="pb-1 pr-4">Package</th><th class="pb-1 pr-4">Version</th><th class="pb-1">Release</th>
+      </tr></thead>
+      <tbody>${sorted.map(p => `<tr class="border-b border-slate-900 hover:bg-slate-900">
+        <td class="py-0.5 pr-4 text-cyan-400">${esc(p.name)}</td>
+        <td class="py-0.5 pr-4 text-slate-300">${esc(p.version)}</td>
+        <td class="py-0.5 text-slate-500">${esc(p.release||'')}</td>
+      </tr>`).join('')}</tbody></table>`;
+
+  } else if (name === 'configs') {
+    const contents = res.config_contents || {};
+    const files = Object.keys(contents);
+    if (!files.length) { body.innerHTML = '<div class="text-slate-600 italic">Aucun fichier de config</div>'; return; }
+    // Reuse tabs within body
+    const tabsHtml = files.map((f, i) => {
+      const short = f.split('/').pop();
+      return `<button onclick="connCfgTab(${i})" id="ccfg-tab-${i}"
+        class="tab ${i===0?'active':''} text-xs px-3 py-1.5 whitespace-nowrap">${esc(short)}</button>`;
+    }).join('');
+    body.innerHTML = `<div class="flex gap-0 border-b border-slate-800 mb-3 overflow-x-auto">${tabsHtml}</div>
+      <pre id="ccfg-body" class="text-slate-300 text-xs whitespace-pre-wrap overflow-auto"></pre>`;
+    window._ccfgFiles = files;
+    window._ccfgContents = contents;
+    connCfgTab(0);
+
+  } else if (name === 'es-overview') {
+    const clName = res.es_cluster_name || '—';
+    // Parse _cat/health for cluster stats
+    let clStatus = '', clNodes = 0, clData = 0, clShards = 0, clPri = 0, clRelo = 0, clInit = 0, clUnassign = 0, clActivePct = '';
+    const healthRaw = (res.es_cat_health || '').replace(/\\n/g, '\n').trim();
+    if (healthRaw) {
+      const hLines = healthRaw.split('\n').filter(l => l.trim());
+      if (hLines.length >= 2) {
+        const hHeaders = hLines[0].trim().split(/\s+/);
+        const hVals    = hLines[1].trim().split(/\s+/);
+        const hIdx = (k) => hHeaders.indexOf(k);
+        clStatus   = hVals[hIdx('status')] || '';
+        clNodes    = parseInt(hVals[hIdx('node.total')]) || parseInt(hVals[hIdx('nodes')]) || 0;
+        clData     = parseInt(hVals[hIdx('node.data')]) || 0;
+        clShards   = parseInt(hVals[hIdx('shards')]) || 0;
+        clPri      = parseInt(hVals[hIdx('pri')]) || 0;
+        clRelo     = parseInt(hVals[hIdx('relo')]) || 0;
+        clInit     = parseInt(hVals[hIdx('init')]) || 0;
+        clUnassign = parseInt(hVals[hIdx('unassign')]) || 0;
+        clActivePct = hVals[hIdx('active_shards_percent')] || '';
+      }
+    }
+    // Parse _cat/indices for totals
+    let totalIdx = 0, totalDocs = 0, totalSize = 0, totalPri = 0, totalRep = 0;
+    const idxRaw = (res.es_cat_indices || '').replace(/\\n/g, '\n').trim();
+    if (idxRaw) {
+      const iLines = idxRaw.split('\n').filter(l => l.trim());
+      if (iLines.length >= 2) {
+        const iHeaders = iLines[0].trim().split(/\s+/);
+        const iRows    = iLines.slice(1).map(l => l.trim().split(/\s+/));
+        const iIdx = (k) => iHeaders.indexOf(k);
+        totalIdx = iRows.length;
+        iRows.forEach(r => {
+          const rawSize = r[iIdx('store.size')] || '';
+          const mult = rawSize.endsWith('tb') ? 1024*1024 : rawSize.endsWith('gb') ? 1024 : rawSize.endsWith('mb') ? 1 : rawSize.endsWith('kb') ? 1/1024 : 0;
+          totalSize += parseFloat(rawSize) * mult || 0;
+          totalDocs += parseInt(r[iIdx('docs.count')]) || 0;
+          totalPri  += parseInt(r[iIdx('pri')]) || 0;
+          totalRep  += parseInt(r[iIdx('rep')]) || 0;
+        });
+      }
+    }
+    const stCol = clStatus === 'green' ? 'text-green-400' : clStatus === 'yellow' ? 'text-yellow-400' : clStatus === 'red' ? 'text-red-400' : 'text-slate-400';
+    const fmtMb = (mb) => mb >= 1024 ? (mb/1024).toFixed(1)+' GB' : mb.toFixed(0)+' MB';
+
+    body.innerHTML = `<div class="space-y-4 text-xs">
+      <div class="flex flex-wrap gap-4 items-center px-4 py-3 rounded-lg bg-slate-900 border border-slate-800">
+        <div>
+          <div class="text-slate-500 text-xs">Cluster</div>
+          <div class="font-bold text-white text-base">${esc(clName)}</div>
+        </div>
+        ${clStatus ? `<div class="ml-4">
+          <div class="text-slate-500 text-xs">Statut</div>
+          <div class="font-bold text-lg ${stCol}">${esc(clStatus.toUpperCase())}</div>
+        </div>` : ''}
+        ${clActivePct ? `<div>
+          <div class="text-slate-500 text-xs">Shards actifs</div>
+          <div class="font-bold text-green-300">${esc(clActivePct)}</div>
+        </div>` : ''}
+      </div>
+      <div class="grid grid-cols-2 gap-4">
+        <div class="px-3 py-2 rounded bg-slate-900 border border-slate-800">
+          <div class="text-blue-400 font-bold text-xs uppercase mb-2">Nœuds</div>
+          <table class="w-full text-xs"><tbody>
+            <tr><td class="py-0.5 pr-4 text-slate-500">Total</td><td class="text-white font-bold">${clNodes}</td></tr>
+            ${clData ? `<tr><td class="py-0.5 pr-4 text-slate-500">Data</td><td class="text-slate-300">${clData}</td></tr>` : ''}
+            ${res.discovered_es_nodes && res.discovered_es_nodes.length ? `<tr><td class="py-0.5 pr-4 text-slate-500">Découverts</td><td class="text-cyan-300">${res.discovered_es_nodes.length}</td></tr>` : ''}
+          </tbody></table>
+        </div>
+        <div class="px-3 py-2 rounded bg-slate-900 border border-slate-800">
+          <div class="text-blue-400 font-bold text-xs uppercase mb-2">Shards</div>
+          <table class="w-full text-xs"><tbody>
+            <tr><td class="py-0.5 pr-4 text-slate-500">Total</td><td class="text-white font-bold">${clShards}</td></tr>
+            <tr><td class="py-0.5 pr-4 text-slate-500">Primaires</td><td class="text-slate-300">${clPri}</td></tr>
+            <tr><td class="py-0.5 pr-4 text-slate-500 ${clRelo?'':'hidden'}">Relocating</td><td class="text-yellow-400 ${clRelo?'':'hidden'}">${clRelo}</td></tr>
+            <tr><td class="py-0.5 pr-4 text-slate-500 ${clInit?'':'hidden'}">Init</td><td class="text-yellow-400 ${clInit?'':'hidden'}">${clInit}</td></tr>
+            <tr><td class="py-0.5 pr-4 text-slate-500 ${clUnassign?'text-red-400 font-bold':''}">Non assignés</td><td class="${clUnassign?'text-red-400 font-bold':'text-green-400'}">${clUnassign}</td></tr>
+          </tbody></table>
+        </div>
+        <div class="px-3 py-2 rounded bg-slate-900 border border-slate-800">
+          <div class="text-blue-400 font-bold text-xs uppercase mb-2">Indices (${totalIdx})</div>
+          <table class="w-full text-xs"><tbody>
+            <tr><td class="py-0.5 pr-4 text-slate-500">Documents</td><td class="text-white font-bold">${totalDocs.toLocaleString()}</td></tr>
+            <tr><td class="py-0.5 pr-4 text-slate-500">Taille totale</td><td class="text-cyan-300 font-bold">${fmtMb(totalSize)}</td></tr>
+            <tr><td class="py-0.5 pr-4 text-slate-500">Shards pri/rep</td><td class="text-slate-300">${totalPri} / ${totalRep}</td></tr>
+          </tbody></table>
+        </div>
+        ${res.es_seed_hosts && res.es_seed_hosts.length ? `
+        <div class="px-3 py-2 rounded bg-slate-900 border border-slate-800">
+          <div class="text-blue-400 font-bold text-xs uppercase mb-2">Seed Hosts</div>
+          ${res.es_seed_hosts.map(h => `<div class="text-cyan-300 font-mono text-xs">${esc(h)}</div>`).join('')}
+        </div>` : ''}
+      </div>
+      ${res.discovered_es_nodes && res.discovered_es_nodes.length ? `
+      <div>
+        <div class="text-blue-400 font-bold text-xs uppercase mb-2">Nœuds découverts</div>
+        <table class="w-full text-xs"><thead>
+          <tr class="text-slate-500 border-b border-slate-800"><th class="pb-1 pr-4 text-left">IP</th><th class="pb-1 text-left">Nom</th></tr>
+        </thead><tbody>
+        ${res.discovered_es_nodes.map(n => `<tr class="border-b border-slate-900">
+          <td class="py-0.5 pr-4 text-cyan-300 font-mono">${esc(n.ip||'')}</td>
+          <td class="py-0.5 text-slate-300">${esc(n.name||'')}</td>
+        </tr>`).join('')}
+        </tbody></table>
+      </div>` : ''}
+    </div>`;
+
+  } else if (name === 'es-nodes') {
+    // _cat/nodes with per-node resource metrics
+    const _parseCat = (raw) => {
+      const lines = (raw || '').replace(/\\n/g,'\n').trim().split('\n').filter(l=>l.trim());
+      if (lines.length < 2) return {headers:[], rows:[]};
+      return {headers: lines[0].trim().split(/\s+/), rows: lines.slice(1).map(l=>l.trim().split(/\s+/))};
+    };
+    const {headers, rows} = _parseCat(res.es_cat_nodes);
+    // Also parse _nodes/stats for search latency per node
+    let nodeStats = {};
+    try {
+      const ns = JSON.parse((res.es_node_stats||'').replace(/\\n/g,'\n'));
+      Object.values(ns.nodes||{}).forEach(n => {
+        const s = n.indices?.search || {};
+        const ix = n.indices?.indexing || {};
+        nodeStats[n.name||n.host] = {
+          query_total: s.query_total||0, query_time_ms: s.query_time_in_millis||0,
+          fetch_total: s.fetch_total||0, fetch_time_ms: s.fetch_time_in_millis||0,
+          index_total: ix.index_total||0, index_time_ms: ix.index_time_in_millis||0,
+        };
+      });
+    } catch(e) {}
+    const masterIdx = headers.indexOf('master');
+    const cpuIdx   = headers.indexOf('cpu');
+    const ramIdx   = headers.indexOf('ram.percent');
+    const heapIdx  = headers.indexOf('heap.percent');
+    const nameIdx  = headers.indexOf('name');
+    const stCol = (v) => {
+      const n = parseFloat(v)||0;
+      return n > 85 ? 'text-red-400 font-bold' : n > 70 ? 'text-yellow-400' : 'text-green-300';
+    };
+    if (!rows.length) { body.innerHTML = '<div class="text-slate-600 italic">Aucune donnée nœud ES</div>'; return; }
+    body.innerHTML = `<div class="overflow-x-auto text-xs">
+      <div class="text-blue-400 font-bold text-xs uppercase mb-2">Nœuds ES (${rows.length})</div>
+      <table class="w-full text-xs mb-4"><thead>
+        <tr class="text-left text-slate-500 border-b border-slate-700">
+          ${headers.map(h=>`<th class="pb-1 pr-3 whitespace-nowrap">${esc(h)}</th>`).join('')}
+          <th class="pb-1 pr-3">Latence recherche</th>
+          <th class="pb-1">Latence indexation</th>
+        </tr></thead><tbody>
+        ${rows.map(cols => {
+          const name = nameIdx>=0 ? cols[nameIdx]||'' : '';
+          const ns2 = nodeStats[name] || {};
+          const avgQ = ns2.query_total ? (ns2.query_time_ms/ns2.query_total).toFixed(1)+'ms' : '—';
+          const avgI = ns2.index_total ? (ns2.index_time_ms/ns2.index_total).toFixed(1)+'ms' : '—';
+          const qCol = ns2.query_total && ns2.query_time_ms/ns2.query_total > 200 ? 'text-red-400' :
+                       ns2.query_total && ns2.query_time_ms/ns2.query_total > 50  ? 'text-yellow-400' : 'text-green-300';
+          const iCol = ns2.index_total && ns2.index_time_ms/ns2.index_total > 100 ? 'text-red-400' :
+                       ns2.index_total && ns2.index_time_ms/ns2.index_total > 30   ? 'text-yellow-400' : 'text-green-300';
+          return `<tr class="border-b border-slate-900 hover:bg-slate-900">
+            ${cols.map((c,i)=>{
+              const cl = i===masterIdx&&c==='*' ? 'text-yellow-400 font-bold' :
+                         i===cpuIdx||i===ramIdx||i===heapIdx ? stCol(c) : 'text-slate-300';
+              return `<td class="py-0.5 pr-3 whitespace-nowrap font-mono ${cl}">${esc(c)}</td>`;
+            }).join('')}
+            <td class="py-0.5 pr-3 font-mono ${qCol}">${esc(avgQ)}</td>
+            <td class="py-0.5 font-mono ${iCol}">${esc(avgI)}</td>
+          </tr>`;
+        }).join('')}
+        </tbody></table>
+      <div class="text-slate-600 text-xs">Latence = moyenne cumulée depuis démarrage du nœud. Rouge &gt;200ms recherche, &gt;100ms indexation.</div>
+    </div>`;
+
+  } else if (name === 'es-indices') {
+    const raw = (res.es_cat_indices || '').replace(/\\n/g, '\n').trim();
+    if (!raw) { body.innerHTML = '<div class="text-slate-600 italic">Données non disponibles</div>'; return; }
+    const lines = raw.split('\n').filter(l => l.trim());
+    const headers = lines[0].trim().split(/\s+/);
+    const rows = lines.slice(1).map(l => l.trim().split(/\s+/));
+    const healthIdx = headers.indexOf('health');
+    const statusIdx2 = headers.indexOf('status');
+    const sizeIdx  = headers.indexOf('store.size');
+    const docsIdx  = headers.indexOf('docs.count');
+    const stCol2 = (v) => v==='green'?'text-green-400':v==='yellow'?'text-yellow-400':v==='open'?'text-cyan-400':v==='red'?'text-red-400':'text-slate-400';
+    body.innerHTML = `<div class="text-blue-400 font-bold mb-2">Indices ES (${rows.length}) — trié par taille desc</div>
+      <div class="overflow-x-auto">
+      <table class="w-full text-xs"><thead>
+        <tr class="text-left text-slate-500 border-b border-slate-800">
+          ${headers.map(h => `<th class="pb-1 pr-3 whitespace-nowrap">${esc(h)}</th>`).join('')}
+        </tr></thead><tbody>
+        ${rows.map(cols => `<tr class="border-b border-slate-900 hover:bg-slate-900">
+          ${cols.map((c,i) => {
+            const cl = (i===healthIdx||i===statusIdx2) ? stCol2(c) :
+                       i===sizeIdx ? 'text-cyan-300 font-bold' :
+                       i===docsIdx ? 'text-white' : 'text-slate-300';
+            return `<td class="py-0.5 pr-3 whitespace-nowrap ${cl}">${esc(c)}</td>`;
+          }).join('')}
+        </tr>`).join('')}
+      </tbody></table></div>`;
+
+  } else if (name === 'es-alloc') {
+    let html = '<div class="space-y-4 text-xs">';
+
+    // _cat/allocation
+    const allocRaw = (res.es_cat_alloc || '').replace(/\\n/g,'\n').trim();
+    if (allocRaw) {
+      const aLines = allocRaw.split('\n').filter(l=>l.trim());
+      const aHdr = aLines[0].trim().split(/\s+/);
+      const aRows = aLines.slice(1).map(l=>l.trim().split(/\s+/));
+      const diskAvailIdx = aHdr.indexOf('disk.avail');
+      const diskTotalIdx = aHdr.indexOf('disk.total');
+      const diskPctIdx   = aHdr.indexOf('disk.percent');
+      html += `<div class="text-blue-400 font-bold text-xs uppercase mb-1">Allocation disques (${aRows.length} nœuds)</div>
+        <table class="w-full text-xs mb-4"><thead>
+          <tr class="text-left text-slate-500 border-b border-slate-700">
+            ${aHdr.map(h=>`<th class="pb-1 pr-3 whitespace-nowrap">${esc(h)}</th>`).join('')}
+          </tr></thead><tbody>
+        ${aRows.map(cols => {
+          const pct = parseFloat(cols[diskPctIdx])||0;
+          const pctCl = pct>85?'text-red-400 font-bold':pct>70?'text-yellow-400':'text-green-300';
+          return `<tr class="border-b border-slate-900 hover:bg-slate-900">
+            ${cols.map((c,i)=>{
+              const cl = i===diskPctIdx?pctCl:i===diskAvailIdx?'text-green-300 font-bold':i===diskTotalIdx?'text-white':'text-slate-300';
+              return `<td class="py-0.5 pr-3 whitespace-nowrap font-mono ${cl}">${esc(c)}</td>`;
+            }).join('')}
+          </tr>`;
+        }).join('')}
+        </tbody></table>`;
+    }
+
+    // ES disk type + latency from audit
+    const di = res.es_disk_info;
+    if (di) {
+      const typeOk = di.type === 'SSD';
+      const rLat = Number(di.avg_read_latency_ms||0);
+      const wLat = Number(di.avg_write_latency_ms||0);
+      const rCol = rLat>10?'text-red-400':rLat>2?'text-yellow-400':'text-green-300';
+      const wCol = wLat>20?'text-red-400':wLat>5?'text-yellow-400':'text-green-300';
+      html += `<div class="text-blue-400 font-bold text-xs uppercase mb-1">Disque données Elasticsearch</div>
+        <div class="grid grid-cols-2 gap-4">
+        <div class="px-3 py-2 rounded bg-slate-900 border border-slate-800">
+          <table class="w-full text-xs"><tbody>
+            <tr><td class="py-0.5 pr-4 text-slate-500 w-32">Chemin data</td>
+              <td class="text-slate-300 font-mono">${esc(di.path||'—')}</td></tr>
+            <tr><td class="py-0.5 pr-4 text-slate-500">Device</td>
+              <td class="text-slate-300 font-mono">${esc(di.device||'—')}</td></tr>
+            <tr><td class="py-0.5 pr-4 text-slate-500">Type</td>
+              <td class="${typeOk?'text-green-400 font-bold':'text-orange-400 font-bold'}">${esc(di.type||'—')}</td></tr>
+            <tr><td class="py-0.5 pr-4 text-slate-500">Scheduler IO</td>
+              <td class="text-slate-300">${esc(di.scheduler||'—')}</td></tr>
+            <tr><td class="py-0.5 pr-4 text-slate-500">Taille</td>
+              <td class="text-white font-bold">${esc(String(di.size_gb||'—'))} GB</td></tr>
+          </tbody></table>
+        </div>
+        <div class="px-3 py-2 rounded bg-slate-900 border border-slate-800">
+          <div class="text-slate-500 text-xs mb-2">Latences moyennes cumulées</div>
+          <table class="w-full text-xs"><tbody>
+            <tr><td class="py-0.5 pr-4 text-slate-500 w-28">Lecture</td>
+              <td class="${rCol} font-bold font-mono">${rLat} ms/op</td></tr>
+            <tr><td class="py-0.5 pr-4 text-slate-500">Écriture</td>
+              <td class="${wCol} font-bold font-mono">${wLat} ms/op</td></tr>
+          </tbody></table>
+          <div class="text-slate-600 text-xs mt-2">SSD: lecture &lt;2ms, écriture &lt;5ms.<br>HDD: lecture &lt;10ms, écriture &lt;20ms.</div>
+        </div></div>`;
+    }
+
+    if (!allocRaw && !di) html += '<div class="text-slate-600 italic">Pas de données disque ES disponibles.</div>';
+    html += '</div>';
+    body.innerHTML = html;
+  }
+}
+
+function connCfgTab(idx) {
+  const files = window._ccfgFiles || [];
+  const contents = window._ccfgContents || {};
+  document.querySelectorAll('[id^="ccfg-tab-"]').forEach((el, i) =>
+    el.classList.toggle('active', i === idx));
+  document.getElementById('ccfg-body').textContent =
+    (contents[files[idx]] || '').replace(/\\n/g, '\n') || '(empty)';
+}
+
+function closeConnModal(event) {
+  if (event && event.type === 'click' &&
+      event.target !== document.getElementById('conn-modal')) return;
+  document.getElementById('conn-modal').classList.add('hidden');
+}
+
+function connOpenCfg() {
+  if (_connCurrentRes) openCfgModal(_connCurrentRes);
+}
+
+function openCfgModal(res) {
+  const modal = document.getElementById('cfg-modal');
+  document.getElementById('cfg-modal-title').textContent =
+    `${res.server_name} — ${res.server_ip}`;
+  document.getElementById('cfg-modal-subtitle').textContent =
+    (res.roles||[]).map(r => r.role).join(' + ') || 'UNKNOWN';
+
+  const contents = res.config_contents || {};
+  const files = Object.keys(contents);
+  const tabs = document.getElementById('cfg-modal-tabs');
+  const body = document.getElementById('cfg-modal-body');
+
+  if (!files.length) {
+    tabs.innerHTML = '';
+    body.textContent = 'No config files found on this node.';
+    modal.classList.remove('hidden');
+    return;
+  }
+
+  // Build tabs
+  tabs.innerHTML = files.map((f, i) => {
+    const short = f.split('/').pop();
+    return `<button onclick="cfgTabSelect(${i})"
+      id="cfg-tab-${i}"
+      class="tab ${i===0?'active':''} text-xs px-3 py-2 whitespace-nowrap">${esc(short)}</button>`;
+  }).join('');
+
+  // Show first tab
+  window._cfgFiles = files;
+  window._cfgContents = contents;
+  cfgTabSelect(0);
+  modal.classList.remove('hidden');
+}
+
+function cfgTabSelect(idx) {
+  const files = window._cfgFiles || [];
+  const contents = window._cfgContents || {};
+  document.querySelectorAll('[id^="cfg-tab-"]').forEach((el, i) => {
+    el.classList.toggle('active', i === idx);
+  });
+  const body = document.getElementById('cfg-modal-body');
+  // Convert escaped \n back to real newlines
+  const raw = (contents[files[idx]] || '').replace(/\\n/g, '\n');
+  body.textContent = raw || '(empty)';
+}
+
+function closeCfgModal(event) {
+  if (event && event.target !== document.getElementById('cfg-modal') && event.type === 'click') {
+    if (!event.target.closest) return;
+  }
+  document.getElementById('cfg-modal').classList.add('hidden');
+}
+
+// ─── Clear audit ─────────────────────────────────────────────────────────
+async function clearAudit() {
+  const badge = document.getElementById('audit-status-badge');
+  try {
+    const r = await fetch(API+'/api/audit', {method:'DELETE'});
+    if (r.status === 409) { alert('Audit is currently running — wait for it to finish.'); return; }
+    const d = await r.json();
+    if (d.ok) {
+      badge.classList.add('hidden');
+      document.getElementById('diagram-container').innerHTML =
+        '<p class="text-slate-500 text-sm">Run an audit to generate the infrastructure diagram.</p>';
+      document.getElementById('results-list').innerHTML = '';
+    }
+  } catch(e) {
+    alert('Clear failed: ' + e.message);
+  }
+}
+
+// ─── Export / Import ─────────────────────────────────────────────────────────
+async function exportConfig() {
+  const r = await fetch(API+'/api/export');
+  const blob = await r.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'arcis-swarm-config.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function importConfig(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  event.target.value = '';   // reset so same file can be re-imported
+  try {
+    const text = await file.text();
+    const payload = JSON.parse(text);
+    // default mode: merge (keeps existing, adds new)
+    payload.mode = payload.mode || 'merge';
+    const r = await fetch(API+'/api/import', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      alert(`Import OK — ${d.imported_credentials} credential(s), ${d.imported_servers} server(s) added.\nTotal: ${d.total_credentials} credentials, ${d.total_servers} servers.\n\nNote: passwords/keys are NOT imported. Re-enter them in the Credentials tab.`);
+      await fetchCredentials();
+      await fetchServers();
+    } else {
+      alert('Import failed: ' + JSON.stringify(d));
+    }
+  } catch(e) {
+    alert('Import error: ' + e.message);
+  }
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+// ─── SVG Zoom + Pan ───────────────────────────────────────────────────────────
+let _svgZoom = 1.0;
+function _applySvgZoom() {
+  const svg = document.querySelector('#diagram-container svg');
+  if (!svg) return;
+  svg.style.zoom = _svgZoom;
+  const lbl = document.getElementById('zoom-label');
+  if (lbl) lbl.textContent = Math.round(_svgZoom * 100) + '%';
+}
+function svgZoomStep(delta) {
+  _svgZoom = Math.max(0.2, Math.min(3.0, _svgZoom + delta));
+  _applySvgZoom();
+}
+function svgZoomReset() {
+  _svgZoom = 1.0;
+  _applySvgZoom();
+}
+
+// Pan: click-drag on the diagram container scrolls it.
+// A drag (mouse moved > 4px) suppresses the subsequent click so SVG nodes
+// don't fire their onclick handlers when the user was panning.
+let _pan = null;    // { x, y, sl, st } — active drag state
+let _panMoved = false;
+
+function _setupSvgPan() {
+  const c = document.getElementById('diagram-container');
+  if (!c || c._panReady) return;
+  c._panReady = true;
+
+  c.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    _pan = { x: e.clientX, y: e.clientY, sl: c.scrollLeft, st: c.scrollTop };
+    _panMoved = false;
+    c.style.cursor = 'grabbing';
+    c.style.userSelect = 'none';
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!_pan) return;
+    const dx = e.clientX - _pan.x;
+    const dy = e.clientY - _pan.y;
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) _panMoved = true;
+    if (_panMoved) {
+      c.scrollLeft = _pan.sl - dx;
+      c.scrollTop  = _pan.st - dy;
+    }
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (!_pan) return;
+    _pan = null;
+    c.style.cursor = 'grab';
+    c.style.userSelect = '';
+  });
+
+  // Capture-phase click: swallow it when a drag just finished so SVG
+  // node onclick handlers don't fire after panning.
+  c.addEventListener('click', (e) => {
+    if (_panMoved) { e.stopPropagation(); _panMoved = false; }
+  }, true);
+}
+
+// ─── Theme toggle ─────────────────────────────────────────────────────────────
+function toggleTheme() {
+  const isLight = document.body.classList.toggle('light');
+  localStorage.setItem('swarm-theme', isLight ? 'light' : 'dark');
+  document.getElementById('theme-moon').classList.toggle('hidden', isLight);
+  document.getElementById('theme-sun').classList.toggle('hidden', !isLight);
+}
+
+function applyStoredTheme() {
+  if (localStorage.getItem('swarm-theme') === 'light') {
+    document.body.classList.add('light');
+    document.getElementById('theme-moon').classList.add('hidden');
+    document.getElementById('theme-sun').classList.remove('hidden');
+  }
+}
+
+async function init() {
+  applyStoredTheme();
+  _setupSvgPan();
+  await fetchCredentials();
+  await fetchServers();
+  loadResults();
+  loadDiagram();
+  // Check if audit is already running
+  const r = await fetch(API+'/api/audit/status');
+  const d = await r.json();
+  if (d.status === 'running') pollAuditStatus();
+}
+
+init();
+</script>
+</body>
+</html>

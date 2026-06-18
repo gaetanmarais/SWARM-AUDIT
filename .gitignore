@@ -1,0 +1,12 @@
+inventory.json
+dumps/
+UPLOADS/
+wiki-scrape/
+CLAUDE.md
+__pycache__/
+*.pyc
+*.pyo
+.env
+*.db
+*.sqlite
+.DS_Store

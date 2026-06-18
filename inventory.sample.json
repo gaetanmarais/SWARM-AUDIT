@@ -1,0 +1,43 @@
+{
+  "credentials": [
+    {
+      "id": "cred-default",
+      "name": "root-ssh",
+      "username": "root",
+      "password": "changeme",
+      "private_key": null,
+      "port": 22,
+      "is_default": true
+    },
+    {
+      "id": "cred-key",
+      "name": "admin-key",
+      "username": "admin",
+      "password": null,
+      "private_key": "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----",
+      "port": 22,
+      "is_default": false
+    }
+  ],
+  "servers": [
+    {
+      "id": "srv-haproxy",
+      "name": "haproxy-01",
+      "ip": "10.0.0.1",
+      "credential_id": null
+    },
+    {
+      "id": "srv-gw",
+      "name": "gateway-01",
+      "ip": "10.0.0.2",
+      "credential_id": "cred-key"
+    },
+    {
+      "id": "srv-es",
+      "name": "elasticsearch-01",
+      "ip": "10.0.0.10",
+      "credential_id": null
+    }
+  ],
+  "last_audit": null
+}

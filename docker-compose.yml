@@ -1,0 +1,12 @@
+services:
+  arcis-swarm:
+    build: .
+    container_name: arcis-swarm
+    restart: unless-stopped
+    ports:
+      - "8099:8000"
+    volumes:
+      - ./inventory.json:/app/inventory.json
+      - ./dumps:/app/dumps
+    environment:
+      - PYTHONUNBUFFERED=1
