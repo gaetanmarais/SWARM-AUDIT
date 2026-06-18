@@ -1,7 +1,7 @@
-# Version: 6.5.0
+# Version: 6.6.0
 # Date:    2026-06-18
-# Notes:   Grid-aligned tile positions (H_GAP=100), column-gap routing for long stubs;
-#          buttons moved to left strip; right strip = status+role only; badge clipping.
+# Notes:   Spread conflicting subnet buses to adjacent gaps (-1/+1 from palette order)
+#          so wires from the same tile exit opposite sides (blue=top, green=bottom).
 
 from __future__ import annotations
 import html as _html_mod
@@ -433,6 +433,26 @@ def _compute_layout(
                     best_gap = g
         if best_gap is not None:
             cidr_to_gap[cidr] = best_gap
+
+    # ── Spread conflicting CIDRs to adjacent gaps ─────────────────────────────
+    # When ≥2 CIDRs land in the same gap their bus lines stack and wires from
+    # the same tile cross each other.  Distribute them: the "bluer" subnet
+    # (lower palette index) moves to gap-1 (higher on screen), the "greener"
+    # one to gap+1 (lower), so stubs on a multi-NIC tile exit from opposite
+    # sides (top for the upper bus, bottom for the lower bus).
+    palette_order: dict[str, int] = {c: idx for idx, c in enumerate(subnet_colors)}
+    spread_buckets: dict[int, list[str]] = {}
+    for cidr, g in cidr_to_gap.items():
+        spread_buckets.setdefault(g, []).append(cidr)
+    for g, cidrs_conflict in spread_buckets.items():
+        if len(cidrs_conflict) <= 1:
+            continue
+        cidrs_sorted = sorted(cidrs_conflict, key=lambda c: palette_order.get(c, 99))
+        count = len(cidrs_sorted)
+        # Symmetric offsets: count=2 → [-1,+1], count=3 → [-1,0,+1], count=4 → [-2,-1,0,+1]
+        offsets: list[int] = [-1, 1] if count == 2 else [k - count // 2 for k in range(count)]
+        for k, cidr in enumerate(cidrs_sorted):
+            cidr_to_gap[cidr] = max(0, min(n - 2, g + offsets[k]))
 
     gap_to_cidrs: dict[int, list[str]] = {}
     for cidr, g in cidr_to_gap.items():

@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <!--
-  Version: 1.11.0
+  Version: 1.12.0
   Date:    2026-06-18
-  Notes:   SVG tile redesign: NIC chips, role icon, buttons in header, no pkg/OS in tile; OS → conn-modal
+  Notes:   Wider modals (max-w-5xl, 90vh), larger text (text-sm), consistent size across all 3 modals
 -->
 <html lang="en">
 <head>
@@ -278,65 +278,65 @@
 </div>
 
 <!-- ── NODE DETAIL MODAL ── -->
-<div id="conn-modal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-50" onclick="closeConnModal(event)">
-  <div class="card rounded-xl w-full max-w-2xl max-h-[80vh] flex flex-col" onclick="event.stopPropagation()">
-    <div class="flex items-center justify-between px-5 py-3 border-b border-slate-700">
+<div id="conn-modal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onclick="closeConnModal(event)">
+  <div class="card rounded-xl w-full max-w-5xl max-h-[90vh] flex flex-col" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between px-6 py-4 border-b border-slate-700">
       <div>
-        <h3 class="font-semibold text-slate-200" id="conn-modal-title">Node</h3>
-        <p class="text-xs text-slate-400 font-mono" id="conn-modal-subtitle"></p>
-        <p class="text-xs text-slate-600 mt-0.5" id="conn-modal-os"></p>
+        <h3 class="font-semibold text-slate-100 text-base" id="conn-modal-title">Node</h3>
+        <p class="text-sm text-slate-400 font-mono mt-0.5" id="conn-modal-subtitle"></p>
+        <p class="text-xs text-slate-500 mt-0.5" id="conn-modal-os"></p>
       </div>
-      <button onclick="closeConnModal()" class="text-slate-500 hover:text-slate-200 text-xl leading-none">&times;</button>
+      <button onclick="closeConnModal()" class="text-slate-500 hover:text-slate-200 text-2xl leading-none px-2">&times;</button>
     </div>
     <!-- tabs -->
-    <div class="flex gap-0 border-b border-slate-800 px-4">
-      <div class="tab active text-xs" onclick="connTab('connections')" id="conn-tab-connections">Connexions</div>
-      <div class="tab text-xs" onclick="connTab('packages')" id="conn-tab-packages">Packages RPM</div>
-      <div class="tab text-xs hidden" onclick="connTab('configs')" id="conn-tab-configs">Config Files</div>
-      <div class="tab text-xs hidden" onclick="connTab('es-overview')" id="conn-tab-es-overview">ES Overview</div>
-      <div class="tab text-xs hidden" onclick="connTab('es-nodes')"   id="conn-tab-es-nodes">ES Nœuds</div>
-      <div class="tab text-xs hidden" onclick="connTab('es-indices')" id="conn-tab-es-indices">ES Indices</div>
-      <div class="tab text-xs hidden" onclick="connTab('es-alloc')"   id="conn-tab-es-alloc">ES Disques</div>
+    <div class="flex gap-0 border-b border-slate-800 px-5">
+      <div class="tab active" onclick="connTab('connections')" id="conn-tab-connections">Connexions</div>
+      <div class="tab" onclick="connTab('packages')" id="conn-tab-packages">Packages RPM</div>
+      <div class="tab hidden" onclick="connTab('configs')" id="conn-tab-configs">Config Files</div>
+      <div class="tab hidden" onclick="connTab('es-overview')" id="conn-tab-es-overview">ES Overview</div>
+      <div class="tab hidden" onclick="connTab('es-nodes')"   id="conn-tab-es-nodes">ES Nœuds</div>
+      <div class="tab hidden" onclick="connTab('es-indices')" id="conn-tab-es-indices">ES Indices</div>
+      <div class="tab hidden" onclick="connTab('es-alloc')"   id="conn-tab-es-alloc">ES Disques</div>
     </div>
-    <div id="conn-modal-body" class="flex-1 overflow-auto p-4 text-xs font-mono"></div>
+    <div id="conn-modal-body" class="flex-1 overflow-auto p-5 text-sm font-mono leading-relaxed"></div>
   </div>
 </div>
 
 <!-- ── STORAGE NODE DETAIL MODAL ── -->
-<div id="sn-modal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-50" onclick="closeSnModal(event)">
-  <div class="card rounded-xl w-full max-w-5xl max-h-[88vh] flex flex-col" onclick="event.stopPropagation()">
-    <div class="flex items-center justify-between px-5 py-3 border-b border-slate-700">
+<div id="sn-modal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onclick="closeSnModal(event)">
+  <div class="card rounded-xl w-full max-w-5xl max-h-[90vh] flex flex-col" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between px-6 py-4 border-b border-slate-700">
       <div>
-        <h3 class="font-semibold text-slate-200" id="sn-modal-title">Storage Node</h3>
-        <p class="text-xs text-slate-500" id="sn-modal-subtitle"></p>
+        <h3 class="font-semibold text-slate-100 text-base" id="sn-modal-title">Storage Node</h3>
+        <p class="text-sm text-slate-400 mt-0.5" id="sn-modal-subtitle"></p>
       </div>
-      <button onclick="closeSnModal()" class="text-slate-500 hover:text-slate-200 text-xl leading-none">&times;</button>
+      <button onclick="closeSnModal()" class="text-slate-500 hover:text-slate-200 text-2xl leading-none px-2">&times;</button>
     </div>
-    <div class="flex gap-0 border-b border-slate-800 px-4 overflow-x-auto">
-      <div class="tab active text-xs whitespace-nowrap" onclick="snTab('overview')"  id="sn-tab-overview">Vue d'ensemble</div>
-      <div class="tab text-xs whitespace-nowrap"        onclick="snTab('volumes')"   id="sn-tab-volumes">Volumes</div>
-      <div class="tab text-xs whitespace-nowrap"        onclick="snTab('hardware')"  id="sn-tab-hardware">Hardware</div>
-      <div class="tab text-xs whitespace-nowrap hidden" onclick="snTab('hp')"        id="sn-tab-hp">Health Processor</div>
-      <div class="tab text-xs whitespace-nowrap hidden" onclick="snTab('feeds')"     id="sn-tab-feeds">Feeds</div>
-      <div class="tab text-xs whitespace-nowrap hidden" onclick="snTab('defrag')"   id="sn-tab-defrag">Defrag</div>
-      <div class="tab text-xs whitespace-nowrap hidden" onclick="snTab('alerts')"    id="sn-tab-alerts">Alertes</div>
+    <div class="flex gap-0 border-b border-slate-800 px-5 overflow-x-auto">
+      <div class="tab active whitespace-nowrap" onclick="snTab('overview')"  id="sn-tab-overview">Vue d'ensemble</div>
+      <div class="tab whitespace-nowrap"        onclick="snTab('volumes')"   id="sn-tab-volumes">Volumes</div>
+      <div class="tab whitespace-nowrap"        onclick="snTab('hardware')"  id="sn-tab-hardware">Hardware</div>
+      <div class="tab whitespace-nowrap hidden" onclick="snTab('hp')"        id="sn-tab-hp">Health Processor</div>
+      <div class="tab whitespace-nowrap hidden" onclick="snTab('feeds')"     id="sn-tab-feeds">Feeds</div>
+      <div class="tab whitespace-nowrap hidden" onclick="snTab('defrag')"   id="sn-tab-defrag">Defrag</div>
+      <div class="tab whitespace-nowrap hidden" onclick="snTab('alerts')"    id="sn-tab-alerts">Alertes</div>
     </div>
-    <div id="sn-modal-body" class="flex-1 overflow-auto p-4 text-xs"></div>
+    <div id="sn-modal-body" class="flex-1 overflow-auto p-5 text-sm"></div>
   </div>
 </div>
 
 <!-- ── CONFIG VIEWER MODAL ── -->
-<div id="cfg-modal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-50" onclick="closeCfgModal(event)">
-  <div class="card rounded-xl w-full max-w-3xl max-h-[80vh] flex flex-col" onclick="event.stopPropagation()">
-    <div class="flex items-center justify-between px-5 py-3 border-b border-slate-700">
+<div id="cfg-modal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onclick="closeCfgModal(event)">
+  <div class="card rounded-xl w-full max-w-5xl max-h-[90vh] flex flex-col" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between px-6 py-4 border-b border-slate-700">
       <div>
-        <h3 class="font-semibold text-slate-200" id="cfg-modal-title">Node config</h3>
-        <p class="text-xs text-slate-500" id="cfg-modal-subtitle"></p>
+        <h3 class="font-semibold text-slate-100 text-base" id="cfg-modal-title">Node config</h3>
+        <p class="text-sm text-slate-400 mt-0.5" id="cfg-modal-subtitle"></p>
       </div>
-      <button onclick="closeCfgModal()" class="text-slate-500 hover:text-slate-200 text-xl leading-none">&times;</button>
+      <button onclick="closeCfgModal()" class="text-slate-500 hover:text-slate-200 text-2xl leading-none px-2">&times;</button>
     </div>
-    <div id="cfg-modal-tabs" class="flex gap-0 border-b border-slate-800 px-4 overflow-x-auto"></div>
-    <pre id="cfg-modal-body" class="flex-1 overflow-auto p-4 text-xs text-slate-300 font-mono bg-slate-950 rounded-b-xl whitespace-pre-wrap"></pre>
+    <div id="cfg-modal-tabs" class="flex gap-0 border-b border-slate-800 px-5 overflow-x-auto"></div>
+    <pre id="cfg-modal-body" class="flex-1 overflow-auto p-5 text-sm text-slate-300 font-mono bg-slate-950 rounded-b-xl whitespace-pre-wrap leading-relaxed"></pre>
   </div>
 </div>
 
