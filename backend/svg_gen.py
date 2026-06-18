@@ -1,7 +1,7 @@
-# Version: 6.4.0
+# Version: 6.5.0
 # Date:    2026-06-18
-# Notes:   Buttons centered in strip, role labels below buttons; badges clearly inside
-#          tile (BADGE_PAD=10); icon scale=2.5, name 14px; margin routing for long stubs.
+# Notes:   Grid-aligned tile positions (H_GAP=100), column-gap routing for long stubs;
+#          buttons moved to left strip; right strip = status+role only; badge clipping.
 
 from __future__ import annotations
 import html as _html_mod
@@ -80,10 +80,12 @@ SUBNET_PALETTE = [
 NODE_W           = 280
 NODE_H           = 155
 ROLE_STRIP_W     = 58   # right-side vertical role strip width
-BODY_W           = NODE_W - ROLE_STRIP_W   # main card body width (222px)
+LEFT_BTN_W       = 40   # left-side button strip width
+BODY_W           = NODE_W - ROLE_STRIP_W        # 222 — full left body (left strip + inner)
+INNER_BODY_W     = BODY_W - LEFT_BTN_W          # 182 — inner content area
 BADGE_PAD        = 10   # gap between tile edge and IP badge (clearly inside)
 BADGE_H_S        = 14   # IP badge height
-H_GAP            = 65
+H_GAP            = 100  # gap between tiles — wider for routing wires between columns
 V_GAP            = 105
 SUB_ROW_GAP      = 28   # vertical gap between sub-rows within the same layer
 MAX_COLS_PER_ROW = 6    # wrap layer into multiple rows when node count exceeds this
@@ -592,18 +594,19 @@ def generate_svg(results: list[AuditResult]) -> str:
         active_layers, layer_sub_rows, subnet_colors
     )
 
-    # ── Node positions ────────────────────────────────────────────────────────
+    # ── Node positions — grid-aligned (same column x in every layer) ──────────
+    # All tiles share a fixed horizontal grid so wires pass cleanly between columns.
+    grid_step = NODE_W + H_GAP
     positions: dict[str, tuple[int, int]] = {}
     for li in active_layers:
         rows = layer_sub_rows[li]
         row_tops = layer_row_tops[li]
         for j, row_nodes in enumerate(rows):
             n_nodes = len(row_nodes)
-            row_w = n_nodes * NODE_W + (n_nodes - 1) * H_GAP
-            x_start = (total_w - row_w) // 2
+            col_offset = (max_cols_actual - n_nodes) // 2   # center row in grid
             cy = row_tops[j] + NODE_H // 2
             for k, r in enumerate(row_nodes):
-                cx = x_start + k * (NODE_W + H_GAP) + NODE_W // 2
+                cx = MARGIN_X + (col_offset + k) * grid_step + NODE_W // 2
                 positions[r.server_id] = (cx, cy)
 
     # ── SVG dimensions ────────────────────────────────────────────────────────
@@ -688,11 +691,11 @@ def generate_svg(results: list[AuditResult]) -> str:
         col = subnet_colors.get(cidr, "#7f8c8d")
         parts.append(
             f'  <line x1="{bus_x_left}" y1="{by}" x2="{bus_x_right}" y2="{by}" '
-            f'stroke="{col}" stroke-width="4" opacity="0.85"/>'
+            f'stroke="{col}" stroke-width="6" opacity="0.85"/>'
         )
         parts.append(
-            f'  <line x1="{bus_x_left}" y1="{by-3}" x2="{bus_x_right}" y2="{by-3}" '
-            f'stroke="{col}" stroke-width="1" opacity="0.4"/>'
+            f'  <line x1="{bus_x_left}" y1="{by-4}" x2="{bus_x_right}" y2="{by-4}" '
+            f'stroke="{col}" stroke-width="1.5" opacity="0.4"/>'
         )
         _lw = len(cidr) * 7 + 10
         for side_x, anchor in [(bus_x_left + 6, "start"), (bus_x_right - 6, "end")]:
@@ -732,8 +735,8 @@ def generate_svg(results: list[AuditResult]) -> str:
                     col = subnet_colors[cidr]
                     direction = "up" if by < cy else "down"
 
-                    # Stubs within body; 18px margin leaves room for badge width
-                    body_left  = cx - NODE_W // 2 + 18
+                    # Stubs within inner body; offset past left button strip
+                    body_left  = cx - NODE_W // 2 + LEFT_BTN_W + 10
                     body_right = cx - NODE_W // 2 + BODY_W - 18
                     if n_stubs == 1:
                         stub_cx = (body_left + body_right) // 2
@@ -744,22 +747,32 @@ def generate_svg(results: list[AuditResult]) -> str:
                     line_start_y = stub_node_y  # wire connects exactly at tile edge
 
                     stub_len = abs(by - line_start_y)
-                    stub_w   = "2.5" if stub_len > NODE_H * 2 else "1.5"
+                    stub_w   = "3.5" if stub_len > NODE_H * 2 else "2.5"
                     gap_idx  = cidr_to_gap.get(cidr)
-                    # Adjacent gap: immediately above (i-1) or immediately below (i)
                     is_adj   = gap_idx is not None and (gap_idx == i or gap_idx == i - 1)
                     if not is_adj and gap_idx is not None:
-                        # Long-distance wire: route via side margin to avoid crossing tiles
-                        mx = bus_x_left if stub_cx <= total_w // 2 else bus_x_right
+                        # Long stub: bend to nearest column gap (tile-free with grid layout)
+                        col_idx = round((cx - MARGIN_X - NODE_W // 2) / grid_step)
+                        if stub_cx < cx:   # stub exits left side of tile
+                            gap_x = MARGIN_X + max(0, col_idx - 1) * grid_step + NODE_W + H_GAP // 2
+                        else:              # stub exits right side
+                            gap_x = MARGIN_X + col_idx * grid_step + NODE_W + H_GAP // 2
+                        # L-shape: tile-edge → column gap → bus
                         parts.append(
-                            f'  <path d="M {stub_cx},{stub_node_y} H {mx} V {by} H {stub_cx}" '
-                            f'stroke="{col}" stroke-width="{stub_w}" fill="none" opacity="0.75"/>'
+                            f'  <path d="M {stub_cx},{stub_node_y} H {gap_x} V {by}" '
+                            f'stroke="{col}" stroke-width="{stub_w}" fill="none" opacity="0.85"/>'
+                        )
+                        parts.append(
+                            f'  <circle cx="{gap_x}" cy="{by}" r="6" fill="{col}" opacity="0.95"/>'
                         )
                     else:
                         parts.append(
                             f'  <line x1="{stub_cx}" y1="{line_start_y}" '
                             f'x2="{stub_cx}" y2="{by}" '
-                            f'stroke="{col}" stroke-width="{stub_w}" opacity="0.80"/>'
+                            f'stroke="{col}" stroke-width="{stub_w}" opacity="0.85"/>'
+                        )
+                        parts.append(
+                            f'  <circle cx="{stub_cx}" cy="{by}" r="6" fill="{col}" opacity="0.95"/>'
                         )
                     parts.append(
                         f'  <circle cx="{stub_cx}" cy="{by}" r="5" fill="{col}" opacity="0.95"/>'
@@ -819,8 +832,9 @@ def generate_svg(results: list[AuditResult]) -> str:
         border_color = "#2d4a6b" if r.success else ("#e67e22" if is_disc else "#c0392b")
         border_width = "2" if is_disc else ("1.5" if r.success else "2")
 
-        # Body center (left of role strip)
-        body_cx = x + BODY_W // 2
+        # Centers: left button strip and inner content area
+        lstrip_cx = x + LEFT_BTN_W // 2
+        body_cx   = x + LEFT_BTN_W + INNER_BODY_W // 2
 
         # 1. Card background (full width)
         parts.append(
@@ -828,26 +842,23 @@ def generate_svg(results: list[AuditResult]) -> str:
             f'rx="10" fill="#162032" stroke="{border_color}" stroke-width="{border_width}"/>'
         )
 
-        # 2. Right role strip — colored vertical band (rounded right side only)
+        # 2. Right role strip — colored vertical band (status + role abbrev, no buttons)
         strip_x = x + BODY_W
         parts.append(
             f'  <rect x="{strip_x}" y="{y+1}" width="{ROLE_STRIP_W-1}" height="{NODE_H-2}" '
             f'rx="9" fill="{color}" fill-opacity="0.88"/>'
         )
-        # Left edge of strip (square to merge with body)
         parts.append(
             f'  <rect x="{strip_x}" y="{y+1}" width="12" height="{NODE_H-2}" '
             f'fill="{color}" fill-opacity="0.88"/>'
         )
-        # Thin left border line between body and strip
         parts.append(
             f'  <line x1="{strip_x}" y1="{y+4}" x2="{strip_x}" y2="{y+NODE_H-4}" '
             f'stroke="{color}" stroke-width="1.5" opacity="0.6"/>'
         )
+        strip_cx = strip_x + ROLE_STRIP_W // 2
 
-        strip_cx = strip_x + ROLE_STRIP_W // 2  # center of strip
-
-        # 2a. Status icon at top of strip
+        # 2a. Status icon at top of right strip
         if is_disc:
             status_sym, status_col = "◈", "#e67e22"
         elif r.success:
@@ -860,33 +871,35 @@ def generate_svg(results: list[AuditResult]) -> str:
             f'{_esc(status_sym)}</text>'
         )
 
-        # 2b. Buttons at true vertical center; role labels below them
+        # 2b. Role abbreviations in right strip (max 4, stacked below status)
         role_labels = [ROLE_SHORT.get(rd.role, rd.role) for rd in r.roles] if r.roles else ["?"]
-        BTN_W  = ROLE_STRIP_W - 10
-        BTN_H  = 14
-        det_by  = y + NODE_H // 2 - BTN_H - 2   # upper button centered at strip mid
-        json_by = y + NODE_H // 2 + 2            # lower button just below center
-        det_bx  = strip_x + 5
-        # Role labels below both buttons, bottom-anchored (max 2)
-        for ri, rl in enumerate(role_labels[:2]):
-            rl_y = json_by + BTN_H + 7 + ri * 13
+        for ri, rl in enumerate(role_labels[:4]):
             parts.append(
-                f'  <text x="{strip_cx}" y="{rl_y}" text-anchor="middle" '
+                f'  <text x="{strip_cx}" y="{y+33+ri*14}" text-anchor="middle" '
                 f'fill="#ffffff" font-size="9" font-weight="bold" font-family="{FONT}">'
                 f'{_esc(rl)}</text>'
             )
 
-        # 2c. Details + JSON buttons — vertically centered in strip
+        # 2c. Left button strip — separator + Details/JSON centered vertically
+        parts.append(
+            f'  <line x1="{x+LEFT_BTN_W}" y1="{y+6}" x2="{x+LEFT_BTN_W}" y2="{y+NODE_H-6}" '
+            f'stroke="{color}" stroke-width="0.8" opacity="0.35"/>'
+        )
+        BTN_W  = LEFT_BTN_W - 8   # 32px
+        BTN_H  = 14
+        det_by  = y + NODE_H // 2 - BTN_H - 2
+        json_by = y + NODE_H // 2 + 2
+
         parts.append(
             f'  <a href="#" onclick="svgNodeDetails(event,&quot;{_esc(r.server_id)}&quot;)" style="cursor:pointer">'
         )
         parts.append(
-            f'  <rect x="{det_bx}" y="{det_by}" width="{BTN_W}" height="{BTN_H}" rx="3" '
+            f'  <rect x="{x+4}" y="{det_by}" width="{BTN_W}" height="{BTN_H}" rx="3" '
             f'fill="#1e3a5f" stroke="#2563eb" stroke-width="1" opacity="0.95"/>'
         )
         parts.append(
-            f'  <text x="{strip_cx}" y="{det_by+10}" text-anchor="middle" '
-            f'fill="#93c5fd" font-size="9" font-family="{FONT}">Details</text>'
+            f'  <text x="{lstrip_cx}" y="{det_by+10}" text-anchor="middle" '
+            f'fill="#93c5fd" font-size="8" font-family="{FONT}">Det.</text>'
         )
         parts.append('  </a>')
 
@@ -896,21 +909,21 @@ def generate_svg(results: list[AuditResult]) -> str:
                 f' onclick="event.stopPropagation()">'
             )
             parts.append(
-                f'  <rect x="{det_bx}" y="{json_by}" width="{BTN_W}" height="{BTN_H}" rx="3" '
+                f'  <rect x="{x+4}" y="{json_by}" width="{BTN_W}" height="{BTN_H}" rx="3" '
                 f'fill="#162032" stroke="#475569" stroke-width="1" opacity="0.95"/>'
             )
             parts.append(
-                f'  <text x="{strip_cx}" y="{json_by+10}" text-anchor="middle" '
-                f'fill="#64748b" font-size="9" font-family="{FONT}">JSON</text>'
+                f'  <text x="{lstrip_cx}" y="{json_by+10}" text-anchor="middle" '
+                f'fill="#64748b" font-size="8" font-family="{FONT}">JSON</text>'
             )
             parts.append('  </a>')
 
-        # 3. Role icon (primary) — upper body, scale=2.5 (~40px diameter)
+        # 3. Role icon (primary) — upper inner body, scale=2.5 (~40px diameter)
         icon_cy = y + 48
         parts.extend(_role_icon_svg(role, color, body_cx, icon_cy, scale=2.5))
 
-        # 4. Server name — below icon, larger font for readability
-        name_str = (r.server_name[:22] + "…") if len(r.server_name) > 22 else r.server_name
+        # 4. Server name — below icon, larger font
+        name_str = (r.server_name[:20] + "…") if len(r.server_name) > 20 else r.server_name
         name_y = y + 82
         parts.append(
             f'  <text x="{body_cx}" y="{name_y}" text-anchor="middle" '
@@ -926,7 +939,7 @@ def generate_svg(results: list[AuditResult]) -> str:
             except (ValueError, AttributeError):
                 _used_pct = 0
             bar_y   = y + NODE_H - 40
-            bar_w   = BODY_W - 16
+            bar_w   = INNER_BODY_W - 16
             filled  = int(bar_w * _used_pct / 100)
             bar_col = "#e74c3c" if _used_pct > 85 else ("#f39c12" if _used_pct > 70 else "#27ae60")
             parts.append(
@@ -934,9 +947,9 @@ def generate_svg(results: list[AuditResult]) -> str:
                 f'fill="#bdc3c7" font-size="8" font-family="{FONT}">'
                 f'{_esc(sn_data.used)}/{_esc(sn_data.max)} · {_esc(sn_data.streams)} str</text>'
             )
-            parts.append(f'  <rect x="{x+8}" y="{bar_y}" width="{bar_w}" height="6" rx="3" fill="#2c3e50"/>')
+            parts.append(f'  <rect x="{x+LEFT_BTN_W+8}" y="{bar_y}" width="{bar_w}" height="6" rx="3" fill="#2c3e50"/>')
             if filled > 0:
-                parts.append(f'  <rect x="{x+8}" y="{bar_y}" width="{filled}" height="6" rx="3" fill="{bar_col}"/>')
+                parts.append(f'  <rect x="{x+LEFT_BTN_W+8}" y="{bar_y}" width="{filled}" height="6" rx="3" fill="{bar_col}"/>')
 
         # 6. Error / disc indicator
         if not r.success and r.error:
@@ -965,9 +978,10 @@ def generate_svg(results: list[AuditResult]) -> str:
                 f'  <line x1="{badge_scx}" y1="{wire_y1}" x2="{badge_scx}" y2="{wire_y2}" '
                 f'stroke="{badge_col}" stroke-width="1.5" opacity="0.9"/>'
             )
-            # Badge rect
+            # Badge rect — clipped to inner body bounds
             badge_w = max(28, len(ip_label) * 5 + 10)
             bx = badge_scx - badge_w // 2
+            bx = max(x + LEFT_BTN_W, min(bx, x + BODY_W - badge_w))
             parts.append(
                 f'  <rect x="{bx}" y="{badge_y}" width="{badge_w}" height="{BADGE_H_S}" '
                 f'rx="3" fill="#0d1628" stroke="{badge_col}" stroke-width="1" opacity="0.95"/>'
