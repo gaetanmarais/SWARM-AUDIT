@@ -169,8 +169,8 @@ def _server_summary(r: AuditResult) -> str:
 
     if r.config_contents:
         lines.append("  CONFIG FILES:")
-        for path, content in list(r.config_contents.items())[:8]:
-            lines.append(f"    [{path}]\n{content[:2500]}")
+        for path, content in list(r.config_contents.items())[:6]:
+            lines.append(f"    [{path}]\n{content[:1500]}")
 
     if r.haproxy_vips:
         lines.append(f"  HAProxy VIPs: {', '.join(r.haproxy_vips)}")
@@ -223,7 +223,7 @@ def _server_summary(r: AuditResult) -> str:
         lines.append("  LOGS last 24h (deduplicated):")
         for role_key, log_content in r.logs.items():
             if log_content:
-                lines.append(f"    [{role_key}]\n{log_content[:3500]}")
+                lines.append(f"    [{role_key}]\n{log_content[:1800]}")
 
     return "\n".join(lines)
 
@@ -273,7 +273,7 @@ async def run_analysis(
     prompt = SYSTEM_PROMPT + "\n\nINFRASTRUCTURE AUDIT DATA:\n" + servers_text
 
     if rag_parts:
-        rag_text = "\n\n".join(rag_parts)[:14000]
+        rag_text = "\n\n".join(rag_parts)[:8000]
         prompt += (
             "\n\nSWARM KNOWLEDGE BASE (best practices / known issues "
             "— from multiple Swarm skills and RAG collections):\n" + rag_text
