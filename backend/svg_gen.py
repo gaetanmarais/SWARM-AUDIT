@@ -1,6 +1,9 @@
-# Version: 7.0.0
+# Version: 9.1.0
 # Date:    2026-06-18
-# Notes:   Vertical backbones: public (green) left, private (blue) right — no wire crossings
+# Notes:   Vertical backbones: public (green) LEFT, private (blue) RIGHT
+#          Public stubs exit tile TOP going LEFT — private stubs exit tile BOTTOM going RIGHT
+#          Geometrically guaranteed no crossings between public and private wires
+#          SVG width=100% (responsive, fills container)
 
 from __future__ import annotations
 import html as _html_mod
@@ -87,20 +90,22 @@ H_GAP             = 100
 V_GAP             = 80
 SUB_ROW_GAP       = 28
 MAX_COLS_PER_ROW  = 6
-MARGIN_X          = 75     # used for legend / band labels only
-MARGIN_Y          = 90
+TILE_MARGIN_X     = 60     # horizontal margin from SVG edge to tile area; backbone fits in here
+MARGIN_Y          = 50     # y start of first tile row
 LABEL_H           = 26
 FONT              = "Arial, sans-serif"
 
-# ─── Backbone constants ───────────────────────────────────────────────────────
-BACKBONE_MARGIN      = 110  # horizontal space on each side (backbone + gap to tiles)
-BACKBONE_X_L         = 40   # center x of left backbone
-BACKBONE_STROKE_W    = 14   # main thick backbone line
-BACKBONE_LEFT_COLOR  = "#27ae60"   # public network = green
-BACKBONE_RIGHT_COLOR = "#3498db"   # private network = blue
+# ─── Vertical backbone constants ─────────────────────────────────────────────
+# Backbone x = BUS_X_OFFSET from each SVG edge (fits inside TILE_MARGIN_X=60)
+BUS_X_OFFSET      = 25
+BUS_STROKE_W      = 12     # backbone line thickness
+BUS_Y_MARGIN      = 20     # backbone extends this many px beyond tile area top/bottom
+PRIV_BUS_COLOR    = "#3498db"   # private network = blue (LEFT backbone)
+PUB_BUS_COLOR     = "#27ae60"   # public network  = green (RIGHT backbone)
 
-BADGE_PAD  = 10
-BADGE_H_S  = 14
+# NIC badge dimensions (rendered inside tile)
+NIC_BADGE_W  = 74
+NIC_BADGE_H  = 26
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -379,17 +384,16 @@ def _node_cidrs_with_ips(r: AuditResult, subnet_colors: dict[str, str]) -> dict[
     return cidr_ips
 
 
-# ─── Subnet → backbone assignment ─────────────────────────────────────────────
+# ─── Subnet → bus assignment ──────────────────────────────────────────────────
 
-def _assign_subnets_to_backbones(
+def _assign_subnets_to_buses(
     subnet_colors: dict[str, str],
     layers_flat: dict[int, list[AuditResult]],
 ) -> dict[str, str]:
-    """Return cidr → 'left' (public/green) | 'right' (private/blue)."""
+    """Return cidr → 'priv' (blue, left backbone) | 'pub' (green, right backbone)."""
     if not subnet_colors:
         return {}
 
-    # Which layers does each subnet appear in?
     cidr_layers: dict[str, set[int]] = {c: set() for c in subnet_colors}
     for li, nodes in layers_flat.items():
         for r in nodes:
@@ -403,26 +407,49 @@ def _assign_subnets_to_backbones(
     for cidr in cidrs:
         lyrs = cidr_layers.get(cidr, set())
         if 0 in lyrs:
-            # Subnet used by HAProxy (layer 0) → public-facing → LEFT
-            assignment[cidr] = "left"
+            # HAProxy (layer 0) uses this subnet → treat as public-facing
+            assignment[cidr] = "pub"
         elif lyrs and min(lyrs) >= 4:
-            # Only in deep layers (ES/Storage) → private → RIGHT
-            assignment[cidr] = "right"
+            # Only in deep layers (ES/Storage) → private/storage network
+            assignment[cidr] = "priv"
         else:
-            # Fallback: alternate to balance sides
             idx = cidrs.index(cidr)
-            assignment[cidr] = "left" if idx % 2 == 0 else "right"
+            assignment[cidr] = "pub" if idx % 2 == 0 else "priv"
 
-    # Guarantee at least one on each side when there are multiple subnets
     if len(cidrs) > 1:
-        left_cnt  = sum(1 for s in assignment.values() if s == "left")
-        right_cnt = sum(1 for s in assignment.values() if s == "right")
-        if left_cnt == 0:
-            assignment[cidrs[0]] = "left"
-        elif right_cnt == 0:
-            assignment[cidrs[-1]] = "right"
+        pub_cnt  = sum(1 for s in assignment.values() if s == "pub")
+        priv_cnt = sum(1 for s in assignment.values() if s == "priv")
+        if pub_cnt == 0:
+            assignment[cidrs[0]] = "pub"
+        elif priv_cnt == 0:
+            assignment[cidrs[-1]] = "priv"
 
     return assignment
+
+
+# ─── NIC badge data ───────────────────────────────────────────────────────────
+
+def _nic_badges(
+    r: AuditResult,
+    subnet_colors: dict[str, str],
+    bus_assign: dict[str, str],
+    side: str,
+) -> list[tuple[str, str]]:
+    """Return list of (iface_label, ip_suffix) for the given side ('priv' or 'pub')."""
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for ni in r.network_interfaces:
+        if not ni.ip or not ni.prefix or _is_internal_iface(ni.iface or "") or ":" in ni.ip:
+            continue
+        if ni.ip in seen:
+            continue
+        cidr = _subnet_label(ni.ip, ni.prefix)
+        if cidr and subnet_colors.get(cidr) and bus_assign.get(cidr) == side:
+            iface  = (ni.iface or "eth?")[:10]
+            ip_suf = _ip_suffix_for_mask(ni.ip, str(ni.prefix))
+            out.append((iface, ip_suf))
+            seen.add(ni.ip)
+    return out[:2]
 
 
 # ─── Layout computation ───────────────────────────────────────────────────────
@@ -558,14 +585,18 @@ def generate_svg(results: list[AuditResult]) -> str:
         for rows in layer_sub_rows.values()
     ) if layer_sub_rows else 1
 
-    # Total width: tile area + backbone margins on each side
-    total_w = BACKBONE_MARGIN * 2 + max_cols_actual * NODE_W + (max_cols_actual - 1) * H_GAP
-    backbone_left_x  = BACKBONE_X_L
-    backbone_right_x = total_w - BACKBONE_X_L
+    # Width: tile area + side margins (backbone fits in TILE_MARGIN_X)
+    total_w = TILE_MARGIN_X * 2 + max_cols_actual * NODE_W + (max_cols_actual - 1) * H_GAP
 
-    # Flatten for backbone assignment
+    # Backbone x positions: fixed offset from each SVG edge
+    # Public (green) on the LEFT — stubs exit tile TOP going left
+    # Private (blue) on the RIGHT — stubs exit tile BOTTOM going right
+    pub_bus_x  = BUS_X_OFFSET           # left backbone (public, green)
+    priv_bus_x = total_w - BUS_X_OFFSET # right backbone (private, blue)
+
+    # Flatten for bus assignment
     layers_flat = {li: [r for row in rows for r in row] for li, rows in layer_sub_rows.items()}
-    backbone_assign = _assign_subnets_to_backbones(subnet_colors, layers_flat)
+    bus_assign = _assign_subnets_to_buses(subnet_colors, layers_flat)
 
     # ── Layout computation ────────────────────────────────────────────────────
     layer_row_tops = _compute_layout(active_layers, layer_sub_rows)
@@ -581,18 +612,20 @@ def generate_svg(results: list[AuditResult]) -> str:
             col_offset = (max_cols_actual - n_nodes) // 2
             cy = row_tops[j] + NODE_H // 2
             for k, r in enumerate(row_nodes):
-                cx = BACKBONE_MARGIN + (col_offset + k) * grid_step + NODE_W // 2
+                cx = TILE_MARGIN_X + (col_offset + k) * grid_step + NODE_W // 2
                 positions[r.server_id] = (cx, cy)
 
     # ── SVG dimensions ────────────────────────────────────────────────────────
     last_li         = active_layers[-1]
     last_row_top    = layer_row_tops[last_li][-1]
     last_row_bottom = last_row_top + NODE_H + LABEL_H
-    legend_h        = max(60, 16 + len(subnet_colors) * 16 + 8)
-    total_h         = last_row_bottom + V_GAP + legend_h + MARGIN_Y
 
-    backbone_top    = MARGIN_Y - 30
-    backbone_bottom = last_row_bottom + 10
+    # Backbones extend BUS_Y_MARGIN above first tile and below last tile
+    bus_y1 = MARGIN_Y - BUS_Y_MARGIN
+    bus_y2 = last_row_bottom + BUS_Y_MARGIN
+
+    legend_h = max(60, 16 + len(subnet_colors) * 16 + 8)
+    total_h  = bus_y2 + 20 + legend_h
 
     all_nodes_flat = [r for li in active_layers for row in layer_sub_rows[li] for r in row]
 
@@ -601,7 +634,7 @@ def generate_svg(results: list[AuditResult]) -> str:
     parts.append(
         f'<svg xmlns="http://www.w3.org/2000/svg" '
         f'viewBox="0 0 {total_w} {total_h}" '
-        f'width="{total_w}" height="{total_h}" '
+        f'width="100%" '
         f'style="background:#0c1524;font-family:{FONT};display:block;">'
     )
 
@@ -621,6 +654,51 @@ def generate_svg(results: list[AuditResult]) -> str:
         parts.append('    </marker>')
     parts.append('  </defs>')
 
+    # ── Vertical backbone buses ────────────────────────────────────────────────
+    # Left = private (blue), stubs attach at tile BOTTOM
+    # Right = public (green), stubs attach at tile TOP
+
+    def _draw_v_backbone(bx: int, color: str, label: str, cidr_list: list[str]) -> None:
+        is_left = bx < total_w // 2
+        # Glow
+        parts.append(
+            f'  <line x1="{bx}" y1="{bus_y1}" x2="{bx}" y2="{bus_y2}" '
+            f'stroke="{color}" stroke-width="{BUS_STROKE_W + 8}" opacity="0.15" stroke-linecap="round"/>'
+        )
+        # Main line
+        parts.append(
+            f'  <line x1="{bx}" y1="{bus_y1}" x2="{bx}" y2="{bus_y2}" '
+            f'stroke="{color}" stroke-width="{BUS_STROKE_W}" opacity="0.90" stroke-linecap="round"/>'
+        )
+        # Horizontal end caps at top and bottom
+        cap_w = BUS_STROKE_W + 6
+        for by in (bus_y1, bus_y2):
+            parts.append(
+                f'  <line x1="{bx - cap_w//2}" y1="{by}" x2="{bx + cap_w//2}" y2="{by}" '
+                f'stroke="{color}" stroke-width="3" opacity="0.8" stroke-linecap="round"/>'
+            )
+        # Label above backbone
+        arrow = "◀" if is_left else "▶"
+        parts.append(
+            f'  <text x="{bx}" y="{bus_y1 - 6}" text-anchor="middle" '
+            f'fill="{color}" font-size="11" font-weight="bold" font-family="{FONT}">'
+            f'{_esc(arrow + " " + label)}</text>'
+        )
+        # CIDR labels beside backbone (right side for left backbone, left side for right backbone)
+        text_x   = bx + 10 if is_left else bx - 10
+        anchor   = "start" if is_left else "end"
+        for k, cidr in enumerate(cidr_list):
+            parts.append(
+                f'  <text x="{text_x}" y="{bus_y1 + 14 + k * 13}" text-anchor="{anchor}" '
+                f'fill="{color}" font-size="9" opacity="0.80" font-family="{FONT}">{_esc(cidr)}</text>'
+            )
+
+    priv_cidrs_list = sorted([c for c in subnet_colors if bus_assign.get(c) == "priv"])
+    pub_cidrs_list  = sorted([c for c in subnet_colors if bus_assign.get(c) == "pub"])
+
+    _draw_v_backbone(pub_bus_x,  PUB_BUS_COLOR,  "Public",  pub_cidrs_list)
+    _draw_v_backbone(priv_bus_x, PRIV_BUS_COLOR, "Private", priv_cidrs_list)
+
     # ── Layer bands ───────────────────────────────────────────────────────────
     for li in active_layers:
         row_tops    = layer_row_tops[li]
@@ -629,12 +707,12 @@ def generate_svg(results: list[AuditResult]) -> str:
         band_h      = band_bottom - band_top
         label       = LAYER_LABELS.get(li, f"Layer {li}")
         parts.append(
-            f'  <rect x="{BACKBONE_MARGIN - 10}" y="{band_top}" '
-            f'width="{total_w - BACKBONE_MARGIN * 2 + 20}" height="{band_h}" '
+            f'  <rect x="{TILE_MARGIN_X - 10}" y="{band_top}" '
+            f'width="{total_w - TILE_MARGIN_X * 2 + 20}" height="{band_h}" '
             f'rx="10" fill="#1e3050" opacity="0.18" stroke="#2a4a70" stroke-width="1" stroke-opacity="0.45"/>'
         )
         parts.append(
-            f'  <text x="{BACKBONE_MARGIN}" y="{band_bottom - 4}" '
+            f'  <text x="{TILE_MARGIN_X}" y="{band_bottom - 4}" '
             f'fill="#4a5a9a" font-size="13" font-style="italic" font-family="{FONT}">{_esc(label)}</text>'
         )
 
@@ -660,109 +738,88 @@ def generate_svg(results: list[AuditResult]) -> str:
                 f'fill="#0f0f1e" font-size="11" font-weight="bold">{_esc(vip_text)}</text>'
             )
 
-    # ── Vertical backbone lines ───────────────────────────────────────────────
-    # Left backbone = public (green)
-    left_cidrs_list  = sorted([c for c in subnet_colors if backbone_assign.get(c) == "left"])
-    right_cidrs_list = sorted([c for c in subnet_colors if backbone_assign.get(c) == "right"])
-
-    def _draw_backbone(bx: int, color: str, label: str, cidr_list: list[str]) -> None:
-        # Glow effect (wide semi-transparent behind main line)
-        parts.append(
-            f'  <line x1="{bx}" y1="{backbone_top}" x2="{bx}" y2="{backbone_bottom}" '
-            f'stroke="{color}" stroke-width="{BACKBONE_STROKE_W + 8}" opacity="0.18" stroke-linecap="round"/>'
-        )
-        # Main thick backbone
-        parts.append(
-            f'  <line x1="{bx}" y1="{backbone_top}" x2="{bx}" y2="{backbone_bottom}" '
-            f'stroke="{color}" stroke-width="{BACKBONE_STROKE_W}" opacity="0.90" stroke-linecap="round"/>'
-        )
-        # Cap lines (top / bottom decorations)
-        cap_w = BACKBONE_STROKE_W + 6
-        parts.append(
-            f'  <line x1="{bx - cap_w//2}" y1="{backbone_top}" x2="{bx + cap_w//2}" y2="{backbone_top}" '
-            f'stroke="{color}" stroke-width="3" opacity="0.8" stroke-linecap="round"/>'
-        )
-        parts.append(
-            f'  <line x1="{bx - cap_w//2}" y1="{backbone_bottom}" x2="{bx + cap_w//2}" y2="{backbone_bottom}" '
-            f'stroke="{color}" stroke-width="3" opacity="0.8" stroke-linecap="round"/>'
-        )
-        # Label above backbone
-        parts.append(
-            f'  <text x="{bx}" y="{backbone_top - 14}" text-anchor="middle" '
-            f'fill="{color}" font-size="12" font-weight="bold" font-family="{FONT}">{_esc(label)}</text>'
-        )
-        # CIDR labels below label
-        for k, cidr in enumerate(cidr_list):
-            parts.append(
-                f'  <text x="{bx}" y="{backbone_top - 2 + k * 13}" text-anchor="middle" '
-                f'fill="{color}" font-size="9" font-family="{FONT}" opacity="0.75">{_esc(cidr)}</text>'
-            )
-
-    if left_cidrs_list or not right_cidrs_list:
-        _draw_backbone(backbone_left_x, BACKBONE_LEFT_COLOR, "Public", left_cidrs_list)
-    if right_cidrs_list:
-        _draw_backbone(backbone_right_x, BACKBONE_RIGHT_COLOR, "Private", right_cidrs_list)
-
-    # ── Horizontal stubs: node → backbone ────────────────────────────────────
-    # Each node connects to left backbone (left CIDRs) and/or right backbone (right CIDRs).
-    # Stubs exit from the tile's LEFT or RIGHT edge at tile center y, spread when multiple.
+    # ── Horizontal stubs: tile → vertical backbone ────────────────────────────
+    # Public  (left backbone):  stub exits from tile TOP-LEFT going horizontally LEFT
+    # Private (right backbone): stub exits from tile BOTTOM-RIGHT going horizontally RIGHT
+    # No crossings: public lines go up+left, private lines go down+right — they never meet.
 
     for r in all_nodes_flat:
         if r.server_id not in positions:
             continue
         cx, cy = positions[r.server_id]
-        tile_left  = cx - NODE_W // 2
-        tile_right = cx + NODE_W // 2
+        tile_left   = cx - NODE_W // 2
+        tile_right  = cx + NODE_W // 2
+        tile_top    = cy - NODE_H // 2
+        tile_bottom = cy + NODE_H // 2
 
         cidr_ips = _node_cidrs_with_ips(r, subnet_colors)
-        node_left_cidrs  = [c for c in cidr_ips if backbone_assign.get(c) == "left"]
-        node_right_cidrs = [c for c in cidr_ips if backbone_assign.get(c) == "right"]
+        node_pub  = [c for c in cidr_ips if bus_assign.get(c) == "pub"]
+        node_priv = [c for c in cidr_ips if bus_assign.get(c) == "priv"]
 
-        def _spread_y(count: int, idx: int) -> int:
+        def _stub_ys(count: int, center_y: int) -> list[int]:
+            """Spread multiple CIDR stubs vertically around center_y."""
             if count == 1:
-                return cy
-            span = int(NODE_H * 0.55)
-            return cy - span // 2 + idx * span // (count - 1)
+                return [center_y]
+            spread = min(20, NODE_H // (count + 1))
+            half = (count - 1) * spread // 2
+            return [center_y - half + i * spread for i in range(count)]
 
-        # Left stubs
-        for idx, cidr in enumerate(node_left_cidrs):
-            col      = subnet_colors[cidr]
-            stub_y   = _spread_y(len(node_left_cidrs), idx)
-            prefix   = cidr.split("/")[1] if "/" in cidr else "24"
-            # Horizontal stub from tile left edge to left backbone
+        # Public stubs: horizontal lines from tile LEFT edge → LEFT backbone
+        # Anchored at tile_top (top of tile)
+        stub_ys = _stub_ys(len(node_pub), tile_top)
+        for idx, cidr in enumerate(node_pub):
+            col    = subnet_colors[cidr]
+            sy     = stub_ys[idx]
+            prefix = cidr.split("/")[1] if "/" in cidr else "24"
+            # Horizontal stub line: tile left edge → left (public) backbone
             parts.append(
-                f'  <line x1="{tile_left}" y1="{stub_y}" x2="{backbone_left_x}" y2="{stub_y}" '
-                f'stroke="{col}" stroke-width="2.5" opacity="0.85"/>'
+                f'  <line x1="{pub_bus_x}" y1="{sy}" x2="{tile_left}" y2="{sy}" '
+                f'stroke="{col}" stroke-width="2.5" opacity="0.80"/>'
             )
-            # Dot on backbone
-            parts.append(f'  <circle cx="{backbone_left_x}" cy="{stub_y}" r="7" fill="{col}" opacity="0.95"/>')
-            parts.append(f'  <circle cx="{backbone_left_x}" cy="{stub_y}" r="4" fill="#0c1524" opacity="0.8"/>')
-            # IP label midpoint of stub
-            mid_x = (tile_left + backbone_left_x) // 2
+            # Ring dot on backbone
+            parts.append(f'  <circle cx="{pub_bus_x}" cy="{sy}" r="7" fill="{col}" opacity="0.95"/>')
+            parts.append(f'  <circle cx="{pub_bus_x}" cy="{sy}" r="4" fill="#0c1524" opacity="0.85"/>')
+            # Cap bar on tile left edge
+            parts.append(
+                f'  <line x1="{tile_left}" y1="{sy - 9}" x2="{tile_left}" y2="{sy + 9}" '
+                f'stroke="{col}" stroke-width="3" stroke-linecap="round"/>'
+            )
+            # IP label above stub
+            mid_x = (pub_bus_x + tile_left) // 2
             for ip in cidr_ips[cidr]:
                 ip_lbl = _ip_suffix_for_mask(ip, prefix)
                 parts.append(
-                    f'  <text x="{mid_x}" y="{stub_y - 5}" text-anchor="middle" '
+                    f'  <text x="{mid_x}" y="{sy - 3}" text-anchor="middle" '
                     f'fill="{col}" font-size="8" font-weight="bold" font-family="{FONT}">'
                     f'{_esc(ip_lbl)}</text>'
                 )
 
-        # Right stubs
-        for idx, cidr in enumerate(node_right_cidrs):
+        # Private stubs: horizontal lines from tile RIGHT edge → RIGHT backbone
+        # Anchored at tile_bottom (bottom of tile)
+        stub_ys = _stub_ys(len(node_priv), tile_bottom)
+        for idx, cidr in enumerate(node_priv):
             col    = subnet_colors[cidr]
-            stub_y = _spread_y(len(node_right_cidrs), idx)
+            sy     = stub_ys[idx]
             prefix = cidr.split("/")[1] if "/" in cidr else "24"
+            # Horizontal stub line: tile right edge → right (private) backbone
             parts.append(
-                f'  <line x1="{tile_right}" y1="{stub_y}" x2="{backbone_right_x}" y2="{stub_y}" '
-                f'stroke="{col}" stroke-width="2.5" opacity="0.85"/>'
+                f'  <line x1="{tile_right}" y1="{sy}" x2="{priv_bus_x}" y2="{sy}" '
+                f'stroke="{col}" stroke-width="2.5" opacity="0.80"/>'
             )
-            parts.append(f'  <circle cx="{backbone_right_x}" cy="{stub_y}" r="7" fill="{col}" opacity="0.95"/>')
-            parts.append(f'  <circle cx="{backbone_right_x}" cy="{stub_y}" r="4" fill="#0c1524" opacity="0.8"/>')
-            mid_x = (tile_right + backbone_right_x) // 2
+            # Ring dot on backbone
+            parts.append(f'  <circle cx="{priv_bus_x}" cy="{sy}" r="7" fill="{col}" opacity="0.95"/>')
+            parts.append(f'  <circle cx="{priv_bus_x}" cy="{sy}" r="4" fill="#0c1524" opacity="0.85"/>')
+            # Cap bar on tile right edge
+            parts.append(
+                f'  <line x1="{tile_right}" y1="{sy - 9}" x2="{tile_right}" y2="{sy + 9}" '
+                f'stroke="{col}" stroke-width="3" stroke-linecap="round"/>'
+            )
+            # IP label above stub
+            mid_x = (tile_right + priv_bus_x) // 2
             for ip in cidr_ips[cidr]:
                 ip_lbl = _ip_suffix_for_mask(ip, prefix)
                 parts.append(
-                    f'  <text x="{mid_x}" y="{stub_y - 5}" text-anchor="middle" '
+                    f'  <text x="{mid_x}" y="{sy - 3}" text-anchor="middle" '
                     f'fill="{col}" font-size="8" font-weight="bold" font-family="{FONT}">'
                     f'{_esc(ip_lbl)}</text>'
                 )
@@ -938,7 +995,53 @@ def generate_svg(results: list[AuditResult]) -> str:
                 f'fill="#e67e22" font-size="8" font-style="italic" font-family="{FONT}">discovered</text>'
             )
 
-        # 7. Transparent click overlay
+        # 7. NIC badges inside tile
+        #    Public  (green): top-left of body area    — matches left backbone / top stub exit
+        #    Private (blue):  bottom-right of body area — matches right backbone / bottom stub exit
+
+        pub_nics = _nic_badges(r, subnet_colors, bus_assign, "pub")
+        if pub_nics:
+            bx = x + LEFT_BTN_W + 4
+            by_b = y + 4   # top-left
+            iface_lbl, ip_suf = pub_nics[0]
+            parts.append(
+                f'  <rect x="{bx}" y="{by_b}" width="{NIC_BADGE_W}" height="{NIC_BADGE_H}" '
+                f'rx="3" fill="{PUB_BUS_COLOR}" fill-opacity="0.10" '
+                f'stroke="{PUB_BUS_COLOR}" stroke-width="1" stroke-opacity="0.70"/>'
+            )
+            parts.append(
+                f'  <text x="{bx + 4}" y="{by_b + 10}" '
+                f'fill="{PUB_BUS_COLOR}" font-size="8" font-family="{FONT}">'
+                f'{_esc(iface_lbl)}</text>'
+            )
+            parts.append(
+                f'  <text x="{bx + 4}" y="{by_b + 21}" '
+                f'fill="{PUB_BUS_COLOR}" font-size="8" font-weight="bold" font-family="{FONT}">'
+                f'{_esc(ip_suf)}</text>'
+            )
+
+        priv_nics = _nic_badges(r, subnet_colors, bus_assign, "priv")
+        if priv_nics:
+            bx = x + BODY_W - NIC_BADGE_W - 4
+            by_b = y + NODE_H - NIC_BADGE_H - 4   # bottom-right
+            iface_lbl, ip_suf = priv_nics[0]
+            parts.append(
+                f'  <rect x="{bx}" y="{by_b}" width="{NIC_BADGE_W}" height="{NIC_BADGE_H}" '
+                f'rx="3" fill="{PRIV_BUS_COLOR}" fill-opacity="0.10" '
+                f'stroke="{PRIV_BUS_COLOR}" stroke-width="1" stroke-opacity="0.70"/>'
+            )
+            parts.append(
+                f'  <text x="{bx + 4}" y="{by_b + 10}" '
+                f'fill="{PRIV_BUS_COLOR}" font-size="8" font-family="{FONT}">'
+                f'{_esc(iface_lbl)}</text>'
+            )
+            parts.append(
+                f'  <text x="{bx + 4}" y="{by_b + 21}" '
+                f'fill="{PRIV_BUS_COLOR}" font-size="8" font-weight="bold" font-family="{FONT}">'
+                f'{_esc(ip_suf)}</text>'
+            )
+
+        # 8. Transparent click overlay
         parts.append(
             f'  <rect x="{x}" y="{y}" width="{BODY_W}" height="{NODE_H}" '
             f'fill="none" style="cursor:pointer" '
@@ -959,13 +1062,16 @@ def generate_svg(results: list[AuditResult]) -> str:
             f'  <text x="{nlx+8}" y="{nly+14}" fill="#94a3b8" font-size="10" font-weight="bold">Networks</text>'
         )
         for i, (cidr, col) in enumerate(subnet_colors.items()):
-            iy   = nly + 24 + i * 16
-            side = backbone_assign.get(cidr, "left")
-            side_label = "← Public" if side == "left" else "Private →"
-            side_col   = BACKBONE_LEFT_COLOR if side == "left" else BACKBONE_RIGHT_COLOR
+            iy         = nly + 24 + i * 16
+            side       = bus_assign.get(cidr, "pub")
+            side_label = "▶ Private" if side == "priv" else "◀ Public"
+            side_col   = PRIV_BUS_COLOR if side == "priv" else PUB_BUS_COLOR
             parts.append(f'  <rect x="{nlx+8}" y="{iy}" width="12" height="10" rx="2" fill="{col}"/>')
             parts.append(f'  <text x="{nlx+26}" y="{iy+9}" fill="{col}" font-size="9">{_esc(cidr)}</text>')
-            parts.append(f'  <text x="{nlx+nlw-6}" y="{iy+9}" text-anchor="end" fill="{side_col}" font-size="8" opacity="0.75">{side_label}</text>')
+            parts.append(
+                f'  <text x="{nlx+nlw-6}" y="{iy+9}" text-anchor="end" '
+                f'fill="{side_col}" font-size="8" opacity="0.80">{side_label}</text>'
+            )
 
     # ── Embedded node meta for JS connection overlay ───────────────────────────
     node_meta: dict = {}
