@@ -1,7 +1,7 @@
-# Version: 6.3.0
+# Version: 6.4.0
 # Date:    2026-06-18
-# Notes:   Fix ES/storage node dedup — audited_ips now includes all NIC IPs so that
-#          a node audited via public IP is not duplicated when rediscovered on private net.
+# Notes:   Buttons centered in strip, role labels below buttons; badges clearly inside
+#          tile (BADGE_PAD=10); icon scale=2.5, name 14px; margin routing for long stubs.
 
 from __future__ import annotations
 import html as _html_mod
@@ -81,8 +81,8 @@ NODE_W           = 280
 NODE_H           = 155
 ROLE_STRIP_W     = 58   # right-side vertical role strip width
 BODY_W           = NODE_W - ROLE_STRIP_W   # main card body width (222px)
-BADGE_PAD        = 4    # gap between tile edge and IP badge (inside)
-BADGE_H_S        = 14   # IP badge height (small, inside tile edge)
+BADGE_PAD        = 10   # gap between tile edge and IP badge (clearly inside)
+BADGE_H_S        = 14   # IP badge height
 H_GAP            = 65
 V_GAP            = 105
 SUB_ROW_GAP      = 28   # vertical gap between sub-rows within the same layer
@@ -745,11 +745,22 @@ def generate_svg(results: list[AuditResult]) -> str:
 
                     stub_len = abs(by - line_start_y)
                     stub_w   = "2.5" if stub_len > NODE_H * 2 else "1.5"
-                    parts.append(
-                        f'  <line x1="{stub_cx}" y1="{line_start_y}" '
-                        f'x2="{stub_cx}" y2="{by}" '
-                        f'stroke="{col}" stroke-width="{stub_w}" opacity="0.80"/>'
-                    )
+                    gap_idx  = cidr_to_gap.get(cidr)
+                    # Adjacent gap: immediately above (i-1) or immediately below (i)
+                    is_adj   = gap_idx is not None and (gap_idx == i or gap_idx == i - 1)
+                    if not is_adj and gap_idx is not None:
+                        # Long-distance wire: route via side margin to avoid crossing tiles
+                        mx = bus_x_left if stub_cx <= total_w // 2 else bus_x_right
+                        parts.append(
+                            f'  <path d="M {stub_cx},{stub_node_y} H {mx} V {by} H {stub_cx}" '
+                            f'stroke="{col}" stroke-width="{stub_w}" fill="none" opacity="0.75"/>'
+                        )
+                    else:
+                        parts.append(
+                            f'  <line x1="{stub_cx}" y1="{line_start_y}" '
+                            f'x2="{stub_cx}" y2="{by}" '
+                            f'stroke="{col}" stroke-width="{stub_w}" opacity="0.80"/>'
+                        )
                     parts.append(
                         f'  <circle cx="{stub_cx}" cy="{by}" r="5" fill="{col}" opacity="0.95"/>'
                     )
@@ -849,19 +860,18 @@ def generate_svg(results: list[AuditResult]) -> str:
             f'{_esc(status_sym)}</text>'
         )
 
-        # 2b. Role abbreviations stacked in strip (above the centered buttons)
+        # 2b. Buttons at true vertical center; role labels below them
         role_labels = [ROLE_SHORT.get(rd.role, rd.role) for rd in r.roles] if r.roles else ["?"]
         BTN_W  = ROLE_STRIP_W - 10
-        BTN_H  = 13
-        # Buttons centered vertically in strip
-        det_by  = y + NODE_H // 2 - BTN_H - 2
-        json_by = y + NODE_H // 2 + 2
+        BTN_H  = 14
+        det_by  = y + NODE_H // 2 - BTN_H - 2   # upper button centered at strip mid
+        json_by = y + NODE_H // 2 + 2            # lower button just below center
         det_bx  = strip_x + 5
-        # Labels fill the space between status icon and buttons
-        max_roles = max(1, (det_by - (y + 28)) // 14)
-        for ri, rl in enumerate(role_labels[:max_roles]):
+        # Role labels below both buttons, bottom-anchored (max 2)
+        for ri, rl in enumerate(role_labels[:2]):
+            rl_y = json_by + BTN_H + 7 + ri * 13
             parts.append(
-                f'  <text x="{strip_cx}" y="{y+30+ri*14}" text-anchor="middle" '
+                f'  <text x="{strip_cx}" y="{rl_y}" text-anchor="middle" '
                 f'fill="#ffffff" font-size="9" font-weight="bold" font-family="{FONT}">'
                 f'{_esc(rl)}</text>'
             )
@@ -895,16 +905,16 @@ def generate_svg(results: list[AuditResult]) -> str:
             )
             parts.append('  </a>')
 
-        # 3. Role icon (primary) in body, upper area
-        icon_cy = y + NODE_H // 2 - 18
-        parts.extend(_role_icon_svg(role, color, body_cx, icon_cy, scale=1.75))
+        # 3. Role icon (primary) — upper body, scale=2.5 (~40px diameter)
+        icon_cy = y + 48
+        parts.extend(_role_icon_svg(role, color, body_cx, icon_cy, scale=2.5))
 
-        # 4. Server name — centered in body
-        name_str = (r.server_name[:26] + "…") if len(r.server_name) > 26 else r.server_name
-        name_y = icon_cy + 20
+        # 4. Server name — below icon, larger font for readability
+        name_str = (r.server_name[:22] + "…") if len(r.server_name) > 22 else r.server_name
+        name_y = y + 82
         parts.append(
             f'  <text x="{body_cx}" y="{name_y}" text-anchor="middle" '
-            f'fill="#f1f5f9" font-size="12" font-weight="bold" font-family="{FONT}">'
+            f'fill="#f1f5f9" font-size="14" font-weight="bold" font-family="{FONT}">'
             f'{_esc(name_str)}</text>'
         )
 
@@ -915,7 +925,7 @@ def generate_svg(results: list[AuditResult]) -> str:
                 _used_pct = 100 - int(sn_data.avail_pct.replace("%", "").strip())
             except (ValueError, AttributeError):
                 _used_pct = 0
-            bar_y   = y + NODE_H - 26
+            bar_y   = y + NODE_H - 40
             bar_w   = BODY_W - 16
             filled  = int(bar_w * _used_pct / 100)
             bar_col = "#e74c3c" if _used_pct > 85 else ("#f39c12" if _used_pct > 70 else "#27ae60")

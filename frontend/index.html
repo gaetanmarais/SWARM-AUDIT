@@ -54,7 +54,7 @@
   .tab { cursor:pointer; padding:8px 16px; border-bottom:2px solid transparent; color:var(--fg-dim); font-size:13px; }
   .tab.active { border-color:#3b82f6; color:var(--fg); }
   #diagram-container { cursor: grab; height: calc(100vh - 160px); overflow: auto; }
-  #diagram-container svg { display:block; max-width:100%; height:auto; }
+  #diagram-container svg { display:block; }
   .spinner { animation:spin 1s linear infinite; }
   @keyframes spin { to { transform:rotate(360deg); } }
   .pulse { animation:pulse 2s ease-in-out infinite; }
@@ -182,7 +182,9 @@
       </a>
     </div>
     <div id="diagram-container" class="card rounded-xl p-4 overflow-auto min-h-64">
-      <p class="text-slate-500 text-sm">Run an audit to generate the infrastructure diagram.</p>
+      <div id="diagram-inner" style="display:inline-block;transform-origin:0 0;">
+        <p class="text-slate-500 text-sm">Run an audit to generate the infrastructure diagram.</p>
+      </div>
     </div>
   </div>
 
@@ -448,7 +450,7 @@ async function loadDiagram() {
   try {
     const r = await fetch(API+'/api/diagram/svg');
     const svg = await r.text();
-    c.innerHTML = svg;
+    document.getElementById('diagram-inner').innerHTML = svg;
     _selectedNodeId = null;  // clear connection highlight on diagram refresh
     _applySvgZoom();          // restore zoom level after SVG reload
     // Show toolbar with export link when diagram has content
@@ -2488,7 +2490,7 @@ async function clearAudit() {
     const d = await r.json();
     if (d.ok) {
       badge.classList.add('hidden');
-      document.getElementById('diagram-container').innerHTML =
+      document.getElementById('diagram-inner').innerHTML =
         '<p class="text-slate-500 text-sm">Run an audit to generate the infrastructure diagram.</p>';
       document.getElementById('results-list').innerHTML = '';
     }
@@ -2540,9 +2542,19 @@ async function importConfig(event) {
 // ─── SVG Zoom + Pan ───────────────────────────────────────────────────────────
 let _svgZoom = 1.0;
 function _applySvgZoom() {
-  const svg = document.querySelector('#diagram-container svg');
+  const inner = document.getElementById('diagram-inner');
+  if (!inner) return;
+  const svg = inner.querySelector('svg');
   if (!svg) return;
-  svg.style.zoom = _svgZoom;
+  const w = parseInt(svg.getAttribute('width') || 0);
+  const h = parseInt(svg.getAttribute('height') || 0);
+  inner.style.transform = `scale(${_svgZoom})`;
+  // Keep layout size = natural SVG size so scroll tracks the visual extent
+  if (w) inner.style.width  = w + 'px';
+  if (h) inner.style.height = h + 'px';
+  // Expand layout area by the scaled-up overhang so scrollbar is accurate
+  inner.style.marginRight  = w ? Math.max(0, w  * (_svgZoom - 1)) + 'px' : '';
+  inner.style.marginBottom = h ? Math.max(0, h  * (_svgZoom - 1)) + 'px' : '';
   const lbl = document.getElementById('zoom-label');
   if (lbl) lbl.textContent = Math.round(_svgZoom * 100) + '%';
 }
@@ -2618,6 +2630,13 @@ function applyStoredTheme() {
 async function init() {
   applyStoredTheme();
   _setupSvgPan();
+  // Mouse-wheel zoom — works on all browsers (no CSS zoom quirks)
+  const _dc = document.getElementById('diagram-container');
+  if (_dc) _dc.addEventListener('wheel', (e) => {
+    if (!document.getElementById('diagram-inner')?.querySelector('svg')) return;
+    e.preventDefault();
+    svgZoomStep(e.deltaY < 0 ? 0.1 : -0.1);
+  }, { passive: false });
   await fetchCredentials();
   await fetchServers();
   loadResults();
