@@ -1,16 +1,13 @@
-# Version: 1.7.0
+# Version: 1.8.0
 # Date:    2026-06-18
-# Notes:   SWARM_DATA_DIR env var — mounts a directory instead of a file to avoid
-#          Docker creating inventory.json as a directory on first run.
+# Notes:   export-report returns a single .html file instead of a ZIP.
 
 from __future__ import annotations
 import asyncio
-import io
 import json
 import logging
 import os
 import re
-import zipfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -375,15 +372,10 @@ const _EXPORT_DATA = {{
         # Fallback: inject before </body>
         exported_html = spa_html.replace("</body>", f"<script>{inject_js}</script></body>")
 
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("index.html", exported_html.encode("utf-8"))
-    buf.seek(0)
-
     return Response(
-        content=buf.read(),
-        media_type="application/zip",
-        headers={"Content-Disposition": 'attachment; filename="arcis-swarm-report.zip"'},
+        content=exported_html.encode("utf-8"),
+        media_type="text/html; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="arcis-swarm-report.html"'},
     )
 
 
