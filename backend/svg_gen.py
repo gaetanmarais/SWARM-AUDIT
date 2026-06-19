@@ -1,7 +1,6 @@
-# Version: 10.0.0
-# Date:    2026-06-19
-# Notes:   Horizontal backbone buses (full-width lines per subnet), vertical stubs
-#          from tile edges to backbone — replaces vertical side-backbone design
+# Version: 11.0.0
+# Date:    2026-06-20
+# Notes:   Plug-style connectors at tile edges (replace T-bar stubs), wider gaps for connector clearance
 
 from __future__ import annotations
 import html as _html_mod
@@ -95,10 +94,12 @@ FONT              = "Arial, sans-serif"
 # ─── Horizontal backbone constants ───────────────────────────────────────────
 BUS_THICKNESS     = 6      # backbone line stroke-width
 BUS_SPACING       = 22     # vertical spacing between stacked backbones in same gap
-BUS_GAP_PAD_TOP   = 12    # padding from top of gap to first backbone center
-BUS_GAP_PAD_BOT   = 12    # padding from last backbone center to bottom of gap
+BUS_GAP_PAD_TOP   = 22    # padding from top of gap to first backbone center
+BUS_GAP_PAD_BOT   = 22    # padding from last backbone center to bottom of gap
 BUS_STUB_CAP      = 8     # half-width of T-bar at tile-edge connection
 BUS_DOT_R         = 5     # ring-dot radius on backbone
+PLUG_BODY_W       = 22    # connector plug body width
+PLUG_BODY_H       = 14    # connector plug body height
 BUS_LABEL_X_PAD   = 6     # x padding for CIDR label from SVG left/right edge
 
 
@@ -745,23 +746,39 @@ def generate_svg(results: list[AuditResult]) -> str:
             # Exit from tile TOP (backbone above) or BOTTOM (backbone below)
             if by <= tile_top:
                 sy = tile_top
-                lbl_y = sy - 3
+                lbl_y = by - 4          # label just above the ring-dot on backbone
                 lbl_anchor = "middle"
             else:
                 sy = tile_bottom
-                lbl_y = sy + 10
+                lbl_y = by + 10         # label just below the ring-dot on backbone
                 lbl_anchor = "middle"
 
-            # Vertical stub line
+            # ── Connector plug at tile edge ───────────────────────────────────
+            # Plug body straddles the tile edge (centered on tile_top or tile_bottom)
+            pbx = sx - PLUG_BODY_W // 2
+            pby_top = sy - PLUG_BODY_H // 2
             parts.append(
-                f'  <line x1="{sx}" y1="{sy}" x2="{sx}" y2="{by}" '
+                f'  <rect x="{pbx}" y="{pby_top}" width="{PLUG_BODY_W}" height="{PLUG_BODY_H}" '
+                f'rx="3" fill="{col}" fill-opacity="0.18" stroke="{col}" stroke-width="1.5"/>'
+            )
+            # Two terminal holes in the plug body
+            for hx in [sx - 5, sx + 5]:
+                parts.append(
+                    f'  <circle cx="{hx}" cy="{sy}" r="2.5" fill="#0c1524" stroke="{col}" stroke-width="1"/>'
+                )
+
+            # Line from plug body edge to backbone
+            if by <= tile_top:
+                # Bus above: line from plug top to bus
+                line_start_y = pby_top
+            else:
+                # Bus below: line from plug bottom to bus
+                line_start_y = pby_top + PLUG_BODY_H
+            parts.append(
+                f'  <line x1="{sx}" y1="{line_start_y}" x2="{sx}" y2="{by}" '
                 f'stroke="{col}" stroke-width="2" opacity="0.72"/>'
             )
-            # T-cap at tile edge
-            parts.append(
-                f'  <line x1="{sx - BUS_STUB_CAP}" y1="{sy}" x2="{sx + BUS_STUB_CAP}" y2="{sy}" '
-                f'stroke="{col}" stroke-width="3" stroke-linecap="round"/>'
-            )
+
             # Ring-dot on backbone
             parts.append(
                 f'  <circle cx="{sx}" cy="{by}" r="{BUS_DOT_R}" fill="{col}" opacity="0.95"/>'
@@ -769,7 +786,7 @@ def generate_svg(results: list[AuditResult]) -> str:
             parts.append(
                 f'  <circle cx="{sx}" cy="{by}" r="{BUS_DOT_R - 2}" fill="#0c1524" opacity="0.85"/>'
             )
-            # IP label beside the stub cap
+            # IP label near backbone
             for ip in cidr_ips[cidr]:
                 ip_lbl = _ip_suffix_for_mask(ip, prefix)
                 parts.append(

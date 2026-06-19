@@ -1,6 +1,6 @@
-# Version: 2.1.0
-# Date:    2026-06-19
-# Notes:   Re-add anthropic_api_key to InventorySettings for direct API fallback
+# Version: 2.3.0
+# Date:    2026-06-20
+# Notes:   Add progress field to AnalysisResult for incremental updates
 
 from __future__ import annotations
 from typing import Optional, Literal
@@ -199,6 +199,7 @@ class AnalysisResult(BaseModel):
     started_at: Optional[str] = None
     finished_at: Optional[str] = None
     error: Optional[str] = None
+    progress: str = ""  # live status message during "running" state
     modules: list[AnalysisModule] = []
     cross_correlations: list[AnalysisFinding] = []
 
@@ -209,6 +210,8 @@ class InventorySettings(BaseModel):
     mcp_hub_url: str = "https://claude-ws-gmarais.duckdns.org/mcp"
     mcp_hub_token: str = ""
     anthropic_api_key: str = ""
+    # "auto" = prefer direct if api_key set; "hub_mcp" = always Hub MCP ask_claude; "direct" = always Anthropic API
+    analysis_backend: Literal["auto", "hub_mcp", "direct"] = "auto"
 
 
 # ─── Inventory file ───────────────────────────────────────────────────────────

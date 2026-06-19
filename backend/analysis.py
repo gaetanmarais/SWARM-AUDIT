@@ -1,6 +1,6 @@
-# Version: 2.2.0
-# Date:    2026-06-19
-# Notes:   Add direct Anthropic API path (bypasses Hub MCP ask_claude when api key set)
+# Version: 3.0.0
+# Date:    2026-06-20
+# Notes:   Chunked analysis: phase 1 per-role parallel, phase 2 synthesis
 
 from __future__ import annotations
 import asyncio
@@ -8,7 +8,7 @@ import json
 import logging
 import time
 import urllib.request
-from typing import Optional
+from typing import Callable, Optional
 
 from models import AuditResult, AnalysisResult, AnalysisModule, AnalysisFinding
 
@@ -18,75 +18,51 @@ CLAUDE_MODEL = "claude-sonnet-4-6"
 
 # Multiple targeted queries to hit the various Swarm skill/RAG collections
 RAG_QUERIES = [
-    "HAProxy DataCore Swarm load balancer maxconn TCP connection limits backend server configuration",
-    "Content Gateway DataCore Swarm HTTP performance tuning connection pool configuration parameters",
-    "Elasticsearch DataCore Swarm cluster health JVM heap memory shards index configuration",
-    "Castor Swarm storage nodes health replication erasure coding disk volume castor.log errors",
-    "Listing Cache Server LCS RabbitMQ Redis DataCore Swarm configuration performance",
-    "SCS CSN platform server DataCore Swarm cluster services NTP DHCP syslog configuration",
-    "DataCore Swarm common errors troubleshooting log analysis disk failure recovery",
-    "DataCore Swarm network NIC bonding multicast VLAN IGMP snooping configuration",
-    "DataCore Swarm replication policy erasure coding best practices sizing memory",
-    "HAProxy SSL TLS offload DataCore Swarm frontend backend ACL configuration",
+    "HAProxy DataCore Swarm load balancer maxconn TCP connection limits backend server configuration",     # 0
+    "Content Gateway DataCore Swarm HTTP performance tuning connection pool configuration parameters",      # 1
+    "Elasticsearch DataCore Swarm cluster health JVM heap memory shards index configuration",              # 2
+    "Castor Swarm storage nodes health replication erasure coding disk volume castor.log errors",          # 3
+    "Listing Cache Server LCS RabbitMQ Redis DataCore Swarm configuration performance",                    # 4
+    "SCS CSN platform server DataCore Swarm cluster services NTP DHCP syslog configuration",              # 5
+    "DataCore Swarm common errors troubleshooting log analysis disk failure recovery",                     # 6
+    "DataCore Swarm network NIC bonding multicast VLAN IGMP snooping configuration",                      # 7
+    "DataCore Swarm replication policy erasure coding best practices sizing memory",                       # 8
+    "HAProxy SSL TLS offload DataCore Swarm frontend backend ACL configuration",                          # 9
 ]
 
-SYSTEM_PROMPT = """You are a senior DataCore Swarm infrastructure architect performing a configuration and log audit.
+# Map each role to the RAG query indices most relevant to it
+ROLE_RAG_MAP: dict[str, list[int]] = {
+    "HAPROXY":              [0, 6, 7, 9],
+    "CONTENT_GATEWAY":      [1, 6, 7],
+    "ELASTICSEARCH":        [2, 6, 7],
+    "CASTOR":               [3, 6, 7, 8],
+    "STORAGE_NODE":         [3, 6, 7, 8],
+    "LISTING_CACHE":        [4, 6, 7],
+    "LISTING_CACHE_SERVER": [4, 6, 7],
+    "SCS":                  [5, 6, 7],
+    "UNKNOWN":              [6, 7],
+}
+_DEFAULT_RAG_INDICES = [6, 7]
 
-Analyze the infrastructure audit data below and return a structured JSON analysis.
+MODULE_SCHEMA = """{
+  "role": "ROLE_NAME",
+  "servers": ["server_name"],
+  "summary": "one-line overall assessment",
+  "config_findings": [{"severity":"CRITICAL|WARNING|INFO|OK","title":"...","detail":"...","recommendation":"...","servers":["..."]}],
+  "log_findings": [{"severity":"CRITICAL|WARNING|INFO|OK","title":"...","detail":"...","recommendation":"...","servers":["..."]}]
+}"""
 
-Rules:
-- Return ONLY valid JSON — no text, no markdown, no code fences
-- Severity: CRITICAL (immediate risk), WARNING (should fix), INFO (observation/best practice), OK (positive/correct)
-- For each finding: cite actual values from the audit data (parameter names, thresholds, counts)
-- Cross-correlations: identify mismatches that span components (e.g. HAProxy maxconn=2000 but Gateway allows 8000 connections — the bottleneck shifts to HAProxy; ES JVM heap vs total RAM ratio)
-- Log analysis: identify error patterns, frequencies, root causes; correlate log errors with config issues
-- Cover ALL servers and ALL detected roles — include at least 2 findings per module
-- Include positive OK findings when configuration is correct"""
-
-RESPONSE_SCHEMA = """{
-  "modules": [
-    {
-      "role": "ROLE_NAME (e.g. HAPROXY, CONTENT_GATEWAY, ELASTICSEARCH, CASTOR, SCS, LISTING_CACHE_SERVER)",
-      "servers": ["server_name"],
-      "summary": "one-line overall assessment (positive or negative)",
-      "config_findings": [
-        {
-          "severity": "CRITICAL|WARNING|INFO|OK",
-          "title": "concise title",
-          "detail": "specific detail with actual parameter names and values from audit data",
-          "recommendation": "concrete actionable recommendation",
-          "servers": ["server_name"]
-        }
-      ],
-      "log_findings": [
-        {
-          "severity": "CRITICAL|WARNING|INFO|OK",
-          "title": "concise title",
-          "detail": "log pattern with message examples and occurrence counts",
-          "recommendation": "actionable recommendation or 'None required'",
-          "servers": ["server_name"]
-        }
-      ]
-    }
-  ],
-  "cross_correlations": [
-    {
-      "severity": "CRITICAL|WARNING|INFO|OK",
-      "title": "concise title",
-      "detail": "cross-component issue with specific values from both sides",
-      "recommendation": "actionable recommendation",
-      "servers": ["server_name1", "server_name2"]
-    }
-  ]
+CROSS_SCHEMA = """{
+  "cross_correlations": [{"severity":"CRITICAL|WARNING|INFO|OK","title":"...","detail":"...","recommendation":"...","servers":["...","..."]}]
 }"""
 
 
-def _call_anthropic_direct(api_key: str, prompt: str) -> str:
+def _call_anthropic_direct(api_key: str, prompt: str, system: str) -> str:
     """Call api.anthropic.com/v1/messages directly — bypass Hub MCP ask_claude."""
     payload = json.dumps({
         "model": CLAUDE_MODEL,
         "max_tokens": 8000,
-        "system": "You are a senior DataCore Swarm infrastructure architect. Return ONLY valid JSON as instructed.",
+        "system": system,
         "messages": [{"role": "user", "content": prompt}],
     }).encode()
     req = urllib.request.Request(
@@ -297,142 +273,359 @@ def _server_summary(r: AuditResult) -> str:
     return "\n".join(lines)
 
 
+# ── New helpers ──────────────────────────────────────────────────────────────
+
+def _strip_fences(text: str) -> str:
+    """Strip ```json … ``` fences from a Claude response."""
+    for fence_open in ("```json\n", "```json", "```\n", "```"):
+        if fence_open in text:
+            text = text.split(fence_open, 1)[1]
+            text = text.split("```", 1)[0]
+            break
+    return text.strip()
+
+
+def _call_claude_sync(
+    prompt: str,
+    system: str,
+    want_direct: bool,
+    api_key: str,
+    mcp_url: str,
+    mcp_token: str,
+) -> str:
+    """Unified sync Claude caller — direct Anthropic API or Hub MCP ask_claude."""
+    if want_direct:
+        return _call_anthropic_direct(api_key, prompt, system)
+
+    # hub_mcp: ask_claude has no system param — embed system at top of prompt
+    full_prompt = f"{system}\n\n{prompt}"
+    ask_args: dict = {"prompt": full_prompt, "model": CLAUDE_MODEL}
+    resp = _ask_claude_with_retry(mcp_url, mcp_token, ask_args)
+    if resp.get("result", {}).get("isError"):
+        err_content = resp.get("result", {}).get("content", [])
+        err_text = err_content[0].get("text", "unknown error") if err_content else "unknown error"
+        raise ValueError(f"ask_claude returned error: {err_text}")
+    text = _extract_ask_claude_answer(resp)
+    if not text:
+        raise ValueError("ask_claude returned empty response")
+    return text
+
+
+def _group_by_role(results: list[AuditResult]) -> dict[str, list[AuditResult]]:
+    """Group servers by detected role. Multi-role servers appear in each group.
+    Failed servers (success=False) land in UNKNOWN."""
+    groups: dict[str, list[AuditResult]] = {}
+    for r in results:
+        if not r.success or not r.roles:
+            groups.setdefault("UNKNOWN", []).append(r)
+            continue
+        for rd in r.roles:
+            role = rd.role or "UNKNOWN"
+            groups.setdefault(role, []).append(r)
+    return groups
+
+
+async def _fetch_rag_cache(
+    needed_indices: set[int],
+    mcp_url: str,
+    mcp_token: str,
+    loop: asyncio.AbstractEventLoop,
+    cancel_flag: list[bool],
+) -> dict[int, str]:
+    """Fetch deduplicated RAG queries upfront; returns {index: text}.
+    Returns empty dict if no token is available."""
+    if not mcp_token or not mcp_url:
+        return {}
+
+    cache: dict[int, str] = {}
+    seen_keys: set[str] = set()
+
+    for idx in sorted(needed_indices):
+        if cancel_flag[0]:
+            raise asyncio.CancelledError()
+        query = RAG_QUERIES[idx]
+        resp = await loop.run_in_executor(
+            None, _mcp_call_sync, mcp_url, mcp_token,
+            "search_workspace_rag", {"query": query, "k": 5},
+        )
+        text = _extract_rag_text(resp).strip()
+        key = text[:200]
+        if text and key not in seen_keys:
+            seen_keys.add(key)
+            cache[idx] = text
+        log.debug("RAG idx=%d: %d chars", idx, len(text))
+
+    log.info("RAG cache: %d/%d indices populated", len(cache), len(needed_indices))
+    return cache
+
+
+def _parse_findings(lst: list) -> list[AnalysisFinding]:
+    """Parse a list of finding dicts into AnalysisFinding objects."""
+    out: list[AnalysisFinding] = []
+    for f in lst or []:
+        try:
+            out.append(AnalysisFinding(
+                severity=f.get("severity", "INFO"),
+                title=f.get("title", ""),
+                detail=f.get("detail", ""),
+                recommendation=f.get("recommendation", ""),
+                servers=f.get("servers", []),
+            ))
+        except Exception:
+            pass
+    return out
+
+
+async def _analyze_role_group(
+    role: str,
+    servers: list[AuditResult],
+    rag_cache: dict[int, str],
+    sem: asyncio.Semaphore,
+    want_direct: bool,
+    api_key: str,
+    mcp_url: str,
+    mcp_token: str,
+    cancel_flag: list[bool],
+    loop: asyncio.AbstractEventLoop,
+) -> AnalysisModule:
+    """Analyze one role group with a single Claude call. Returns AnalysisModule."""
+    async with sem:
+        if cancel_flag[0]:
+            raise asyncio.CancelledError()
+
+        # Build server summaries block
+        server_summaries = "\n\n".join(_server_summary(r) for r in servers)
+
+        # Build RAG block for this role
+        indices = ROLE_RAG_MAP.get(role, _DEFAULT_RAG_INDICES)
+        rag_parts = [rag_cache[i] for i in indices if i in rag_cache]
+        rag_block = ""
+        if rag_parts:
+            rag_text = "\n\n".join(rag_parts)[:4000]
+            rag_block = f"\nSWARM KNOWLEDGE BASE:\n{rag_text}"
+
+        system = (
+            "You are a senior DataCore Swarm infrastructure architect performing a configuration audit.\n"
+            "Return ONLY valid JSON — no text, no markdown, no code fences.\n"
+            "Severity: CRITICAL (immediate risk), WARNING (should fix), INFO (observation), OK (correct).\n"
+            "Cite actual values from audit data. Minimum 2 findings per section. Include positive OK findings."
+        )
+
+        prompt = (
+            f"ROLE TO ANALYZE: {role}\n\n"
+            f"SERVERS:\n{server_summaries}"
+            f"{rag_block}\n\n"
+            f"Return ONLY a JSON object for role {role}:\n{MODULE_SCHEMA}"
+        )
+
+        log.info("Analyzing role group: %s (%d servers, ~%d chars)…",
+                 role, len(servers), len(prompt))
+
+        try:
+            raw = await loop.run_in_executor(
+                None, _call_claude_sync,
+                prompt, system, want_direct, api_key, mcp_url, mcp_token,
+            )
+            raw = _strip_fences(raw)
+            data = json.loads(raw)
+            return AnalysisModule(
+                role=data.get("role", role),
+                servers=data.get("servers", [s.server_name for s in servers]),
+                summary=data.get("summary", ""),
+                config_findings=_parse_findings(data.get("config_findings", [])),
+                log_findings=_parse_findings(data.get("log_findings", [])),
+            )
+        except Exception as exc:
+            log.error("Role group %s analysis failed: %s", role, exc)
+            return AnalysisModule(
+                role=role,
+                servers=[s.server_name for s in servers],
+                summary=f"Analysis failed: {exc}",
+                config_findings=[],
+                log_findings=[],
+            )
+
+
+async def _run_synthesis(
+    modules: list[AnalysisModule],
+    results: list[AuditResult],
+    want_direct: bool,
+    api_key: str,
+    mcp_url: str,
+    mcp_token: str,
+    cancel_flag: list[bool],
+    loop: asyncio.AbstractEventLoop,
+) -> list[AnalysisFinding]:
+    """Phase 2: one synthesis call using compact module summaries + topology."""
+    if cancel_flag[0]:
+        raise asyncio.CancelledError()
+
+    # Compact role summaries: role | servers | summary | top CRITICAL/WARNING titles
+    role_lines: list[str] = []
+    for m in modules:
+        all_findings = m.config_findings + m.log_findings
+        notable = [
+            f.title for f in all_findings
+            if f.severity in ("CRITICAL", "WARNING")
+        ][:5]
+        notable_str = "; ".join(notable) if notable else "none"
+        servers_str = ", ".join(m.servers)
+        role_lines.append(
+            f"Role: {m.role} | Servers: {servers_str}\n"
+            f"  Summary: {m.summary}\n"
+            f"  Notable: {notable_str}"
+        )
+    role_block = "\n\n".join(role_lines)
+
+    # Topology block per server
+    topo_lines: list[str] = []
+    for r in results:
+        hb = len(r.haproxy_backends) if r.haproxy_backends else 0
+        gc = ", ".join(r.gw_cluster_ips) if r.gw_cluster_ips else "—"
+        ge = ", ".join(r.gw_es_ips) if r.gw_es_ips else "—"
+        gl = ", ".join(r.gw_lcs_ips) if r.gw_lcs_ips else "—"
+        cn = len(r.discovered_storage_nodes) if r.discovered_storage_nodes else 0
+        ram = r.ram.total_mb if r.ram else 0
+        topo_lines.append(
+            f"Server {r.server_name} ({r.server_ip}) | "
+            f"haproxy_backends={hb} | gw→swarm={gc} | gw→es={ge} | "
+            f"gw→lcs={gl} | castor_nodes={cn} | ram={ram}MB"
+        )
+    topo_block = "\n".join(topo_lines)
+
+    system = (
+        "You are a senior DataCore Swarm infrastructure architect.\n"
+        "Identify cross-component issues. Return ONLY valid JSON — no text, no markdown, no code fences."
+    )
+
+    prompt = (
+        f"ROLE ANALYSES:\n{role_block}\n\n"
+        f"TOPOLOGY & CONNECTIVITY:\n{topo_block}\n\n"
+        "Identify cross-component correlations (HAProxy maxconn vs GW pool, ES heap vs RAM ratio, "
+        "GW pool vs Castor node count, config mismatches).\n"
+        f"Return ONLY:\n{CROSS_SCHEMA}"
+    )
+
+    log.info("Running synthesis call (~%d chars)…", len(prompt))
+    raw = await loop.run_in_executor(
+        None, _call_claude_sync,
+        prompt, system, want_direct, api_key, mcp_url, mcp_token,
+    )
+    raw = _strip_fences(raw)
+    data = json.loads(raw)
+    return _parse_findings(data.get("cross_correlations", []))
+
+
+# ── Orchestrator ─────────────────────────────────────────────────────────────
+
 async def run_analysis(
     results: list[AuditResult],
     mcp_url: str,
     mcp_token: str,
     cancel_flag: list[bool],
     anthropic_api_key: str = "",
+    analysis_backend: str = "auto",
+    on_module_done: Optional[Callable[[AnalysisModule], None]] = None,
+    on_progress: Optional[Callable[[str], None]] = None,
 ) -> AnalysisResult:
     """
-    Run AI analysis on audit results.
-    If anthropic_api_key is set, calls Anthropic API directly.
-    Otherwise calls via Hub MCP ask_claude.
+    Orchestrate chunked analysis:
+      Phase 1 — one Claude call per role group, run in parallel
+      Phase 2 — synthesis call for cross-correlations
+
+    analysis_backend: "auto" → prefer direct if api_key set; "hub_mcp" → Hub MCP ask_claude;
+                      "direct" → Anthropic API directly.
     cancel_flag[0] = True → abort with CancelledError.
+    on_module_done(module) called after each phase-1 module completes.
+    on_progress(msg) called with human-readable status strings.
     """
-    if not anthropic_api_key and not mcp_token:
-        raise ValueError("No analysis credentials configured (no Anthropic API key and no MCP token)")
-    if not anthropic_api_key and not mcp_url:
-        raise ValueError("No MCP URL configured — cannot run AI analysis via Hub")
+    # Resolve which path to use
+    want_direct  = analysis_backend == "direct" or (analysis_backend == "auto" and bool(anthropic_api_key))
+    want_hub_mcp = analysis_backend == "hub_mcp" or (analysis_backend == "auto" and not want_direct)
+
+    if want_direct and not anthropic_api_key:
+        raise ValueError(
+            "Direct API mode selected but no Anthropic API key configured "
+            "(set it in Settings or ANTHROPIC_API_KEY env)"
+        )
+    if want_hub_mcp and not mcp_token:
+        raise ValueError(
+            "Hub MCP mode selected but no MCP token configured "
+            "(set Hub MCP Token in Settings, scope: chat:write + rag:read)"
+        )
+    if want_hub_mcp and not mcp_url:
+        raise ValueError("Hub MCP mode selected but no MCP URL configured")
 
     loop = asyncio.get_event_loop()
 
-    # ── 1. RAG context from Hub MCP (multiple Swarm skills) ─────────────────
-    rag_parts: list[str] = []
-    log.info("Fetching Swarm RAG context (%d queries)…", len(RAG_QUERIES))
-    seen: set[str] = set()
-    for query in RAG_QUERIES:
-        if cancel_flag[0]:
-            raise asyncio.CancelledError()
-        resp = await loop.run_in_executor(
-            None, _mcp_call_sync, mcp_url, mcp_token, "search_workspace_rag",
-            {"query": query, "k": 5},
-        )
-        text = _extract_rag_text(resp).strip()
-        key = text[:200]
-        if text and key not in seen:
-            seen.add(key)
-            rag_parts.append(f"[{query}]\n{text}")
-    log.info("RAG: %d unique results, ~%d chars", len(rag_parts),
-             sum(len(p) for p in rag_parts))
+    # ── 1. Group servers by role ─────────────────────────────────────────────
+    role_groups = _group_by_role(results)
+    n_groups = len(role_groups)
+    log.info("Phase 1: %d role groups identified: %s", n_groups, list(role_groups.keys()))
+
+    # ── 2. Fetch RAG upfront (deduplicated) ──────────────────────────────────
+    needed: set[int] = set()
+    for role in role_groups:
+        needed.update(ROLE_RAG_MAP.get(role, _DEFAULT_RAG_INDICES))
+
+    if on_progress:
+        on_progress(f"Fetching RAG context ({len(needed)} queries)…")
+
+    rag_cache = await _fetch_rag_cache(needed, mcp_url, mcp_token, loop, cancel_flag)
 
     if cancel_flag[0]:
         raise asyncio.CancelledError()
 
-    # ── 2. Build prompt ──────────────────────────────────────────────────────
-    servers_text = "\n\n".join(_server_summary(r) for r in results)
+    # ── 3. Phase 1: parallel role analysis ──────────────────────────────────
+    # Limit concurrency: hub_mcp is rate-limited (1), direct can do 3 in parallel
+    concurrency = 1 if want_hub_mcp else 3
+    sem = asyncio.Semaphore(concurrency)
 
-    prompt = SYSTEM_PROMPT + "\n\nINFRASTRUCTURE AUDIT DATA:\n" + servers_text
+    if on_progress:
+        on_progress(f"Phase 1/2 — {n_groups} role groups…")
 
-    if rag_parts:
-        rag_text = "\n\n".join(rag_parts)[:8000]
-        prompt += (
-            "\n\nSWARM KNOWLEDGE BASE (best practices / known issues "
-            "— from multiple Swarm skills and RAG collections):\n" + rag_text
+    done_count = 0
+
+    async def _analyze_with_cb(role: str, servers: list[AuditResult]) -> AnalysisModule:
+        nonlocal done_count
+        module = await _analyze_role_group(
+            role, servers, rag_cache, sem,
+            want_direct, anthropic_api_key, mcp_url, mcp_token,
+            cancel_flag, loop,
         )
+        done_count += 1
+        if on_progress:
+            on_progress(f"Phase 1/2 — {done_count}/{n_groups} roles done…")
+        if on_module_done:
+            on_module_done(module)
+        return module
 
-    prompt += f"""
-
-TASK: Analyze the complete infrastructure above.
-Return ONLY a JSON object matching this schema exactly:
-{RESPONSE_SCHEMA}
-
-Important:
-- Cover ALL servers and ALL detected roles
-- Cite exact parameter names and values from the audit data
-- Correlate across components (HAProxy ↔ Gateway limits, ES heap ↔ RAM, GW TCP pool ↔ Castor nodes count, etc.)
-- For log analysis: cite message excerpts, mention occurrence counts [xN] when available
-- At least 2 findings per module; positive OK findings are valuable
-"""
-
-    # ── 3. Call Claude ───────────────────────────────────────────────────────
-    if cancel_flag[0]:
-        raise asyncio.CancelledError()
-
-    if anthropic_api_key:
-        log.info("Calling Anthropic API directly (model=%s, ~%d chars)…", CLAUDE_MODEL, len(prompt))
-        raw_text = await loop.run_in_executor(
-            None, _call_anthropic_direct, anthropic_api_key, prompt
-        )
-        if not raw_text:
-            raise ValueError("Anthropic API returned empty response")
-    else:
-        log.info("Calling ask_claude via MCP (url=%s, model=%s, ~%d chars)…",
-                 mcp_url, CLAUDE_MODEL, len(prompt))
-        resp = await loop.run_in_executor(
-            None, _ask_claude_with_retry,
-            mcp_url, mcp_token, {"prompt": prompt, "model": CLAUDE_MODEL},
-        )
-        if resp.get("result", {}).get("isError"):
-            err_content = resp.get("result", {}).get("content", [])
-            err_text = err_content[0].get("text", "unknown error") if err_content else "unknown error"
-            raise ValueError(f"ask_claude returned error: {err_text}")
-        raw_text = _extract_ask_claude_answer(resp)
-        if not raw_text:
-            raise ValueError("ask_claude returned empty response")
-
-    # Strip markdown code fences if present despite instructions
-    for fence_open in ("```json\n", "```json", "```\n", "```"):
-        if fence_open in raw_text:
-            raw_text = raw_text.split(fence_open, 1)[1]
-            raw_text = raw_text.split("```", 1)[0]
-            break
-
-    # ── 4. Parse and build AnalysisResult ────────────────────────────────────
-    try:
-        data = json.loads(raw_text.strip())
-    except json.JSONDecodeError as exc:
-        log.error("Claude returned invalid JSON: %s | excerpt: %s", exc, raw_text[:300])
-        raise ValueError(f"Claude returned invalid JSON: {exc}") from exc
-
-    def _findings(raw_list: list) -> list[AnalysisFinding]:
-        out = []
-        for f in raw_list or []:
-            try:
-                out.append(AnalysisFinding(
-                    severity=f.get("severity", "INFO"),
-                    title=f.get("title", ""),
-                    detail=f.get("detail", ""),
-                    recommendation=f.get("recommendation", ""),
-                    servers=f.get("servers", []),
-                ))
-            except Exception:
-                pass
-        return out
-
-    modules = [
-        AnalysisModule(
-            role=m.get("role", "UNKNOWN"),
-            servers=m.get("servers", []),
-            summary=m.get("summary", ""),
-            config_findings=_findings(m.get("config_findings", [])),
-            log_findings=_findings(m.get("log_findings", [])),
-        )
-        for m in data.get("modules", [])
+    tasks = [
+        _analyze_with_cb(role, servers)
+        for role, servers in role_groups.items()
     ]
+    modules_raw = await asyncio.gather(*tasks, return_exceptions=True)
+    modules = [m for m in modules_raw if isinstance(m, AnalysisModule)]
 
-    return AnalysisResult(
-        status="done",
-        modules=modules,
-        cross_correlations=_findings(data.get("cross_correlations", [])),
-    )
+    if cancel_flag[0]:
+        raise asyncio.CancelledError()
+
+    # ── 4. Phase 2: cross-correlation synthesis ──────────────────────────────
+    if on_progress:
+        on_progress("Phase 2/2 — cross-correlation synthesis…")
+
+    cross_corrs: list[AnalysisFinding] = []
+    if modules:
+        try:
+            cross_corrs = await _run_synthesis(
+                modules, results,
+                want_direct, anthropic_api_key, mcp_url, mcp_token,
+                cancel_flag, loop,
+            )
+        except Exception as exc:
+            log.error("Synthesis failed: %s", exc)
+
+    if on_progress:
+        on_progress("")
+
+    return AnalysisResult(status="done", modules=modules, cross_correlations=cross_corrs)

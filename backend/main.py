@@ -24,7 +24,7 @@ from models import (
     Credential, CredentialCreate,
     Server, ServerCreate,
     Inventory, AuditRun, AuditResult,
-    AnalysisResult, InventorySettings,
+    AnalysisResult, AnalysisModule, InventorySettings,
 )
 from audit import run_audit
 from svg_gen import generate_svg
@@ -288,20 +288,40 @@ async def clear_audit():
 async def _do_analysis(results: list[AuditResult]) -> None:
     global _current_analysis, _analysis_cancel
     inv = load_inventory()
-    mcp_url          = os.environ.get("CLAUDE_HUB_MCP_URL", "") or inv.settings.mcp_hub_url
-    mcp_token        = os.environ.get("CLAUDE_HUB_MCP_TOKEN", "") or inv.settings.mcp_hub_token
+    mcp_url           = os.environ.get("CLAUDE_HUB_MCP_URL", "") or inv.settings.mcp_hub_url
+    mcp_token         = os.environ.get("CLAUDE_HUB_MCP_TOKEN", "") or inv.settings.mcp_hub_token
     anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY", "") or inv.settings.anthropic_api_key
+    analysis_backend  = inv.settings.analysis_backend  # "auto" | "hub_mcp" | "direct"
 
-    if not anthropic_api_key and not mcp_token:
-        log.warning("No analysis credentials configured (set Anthropic API key or MCP token) — skipping AI analysis")
+    has_direct  = bool(anthropic_api_key)
+    has_hub_mcp = bool(mcp_token)
+    if not has_direct and not has_hub_mcp:
+        log.warning("No analysis credentials configured — skipping AI analysis")
+        return
+    if analysis_backend == "direct" and not has_direct:
+        log.warning("Direct API mode selected but no Anthropic API key — skipping AI analysis")
+        return
+    if analysis_backend == "hub_mcp" and not has_hub_mcp:
+        log.warning("Hub MCP mode selected but no MCP token — skipping AI analysis")
         return
 
     _analysis_cancel[0] = False
     started = datetime.now(timezone.utc).isoformat()
     _current_analysis = AnalysisResult(status="running", started_at=started)
 
+    def _module_cb(module: AnalysisModule) -> None:
+        if _current_analysis and _current_analysis.status == "running":
+            _current_analysis.modules.append(module)
+
+    def _progress_cb(msg: str) -> None:
+        if _current_analysis and _current_analysis.status == "running":
+            _current_analysis.progress = msg
+
     try:
-        result = await run_analysis(results, mcp_url, mcp_token, _analysis_cancel, anthropic_api_key)
+        result = await run_analysis(
+            results, mcp_url, mcp_token, _analysis_cancel, anthropic_api_key, analysis_backend,
+            on_module_done=_module_cb, on_progress=_progress_cb,
+        )
         result.started_at = started
         result.finished_at = datetime.now(timezone.utc).isoformat()
         _current_analysis = result
@@ -332,7 +352,8 @@ async def analysis_status():
 
 @app.get("/api/analysis/results")
 async def analysis_results():
-    if _current_analysis and _current_analysis.status in ("done", "error"):
+    # Return current state even while running (for incremental frontend updates)
+    if _current_analysis is not None:
         return _current_analysis
     inv = load_inventory()
     if inv.last_analysis:
@@ -354,11 +375,12 @@ async def cancel_analysis():
 async def get_settings():
     inv = load_inventory()
     return {
-        "mcp_hub_url":       inv.settings.mcp_hub_url,
-        "mcp_hub_token":     inv.settings.mcp_hub_token,
-        "has_anthropic_key": bool(
+        "mcp_hub_url":        inv.settings.mcp_hub_url,
+        "mcp_hub_token":      inv.settings.mcp_hub_token,
+        "has_anthropic_key":  bool(
             os.environ.get("ANTHROPIC_API_KEY") or inv.settings.anthropic_api_key
         ),
+        "analysis_backend":   inv.settings.analysis_backend,
     }
 
 
@@ -371,6 +393,8 @@ async def update_settings(body: dict):
         inv.settings.mcp_hub_token = str(body["mcp_hub_token"])
     if "anthropic_api_key" in body:
         inv.settings.anthropic_api_key = str(body["anthropic_api_key"])
+    if "analysis_backend" in body and body["analysis_backend"] in ("auto", "hub_mcp", "direct"):
+        inv.settings.analysis_backend = body["analysis_backend"]
     save_inventory(inv)
     return {"ok": True}
 

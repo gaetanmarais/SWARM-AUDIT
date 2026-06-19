@@ -286,20 +286,35 @@
     <div class="mt-6">
       <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-3">AI Analysis</h2>
       <div class="card rounded-xl p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <!-- Analysis backend selector -->
         <div class="md:col-span-2">
-          <label class="block text-xs text-slate-400 mb-1">Anthropic API Key <span class="text-emerald-400">(direct — recommandé)</span></label>
-          <input id="settings-anthropic-key" type="password" class="input text-xs font-mono w-full" placeholder="sk-ant-…"/>
-          <p class="text-xs text-slate-500 mt-1">Appelle <code>api.anthropic.com</code> directement, bypass Hub MCP. Overridden by <code>ANTHROPIC_API_KEY</code> env var.</p>
+          <label class="block text-xs text-slate-400 mb-2">Analysis Backend</label>
+          <div class="flex gap-3 flex-wrap">
+            <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-300">
+              <input type="radio" name="analysis-backend" value="auto" class="accent-purple-500"/> Auto <span class="text-slate-500">(direct si clé dispo, sinon Hub MCP)</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-300">
+              <input type="radio" name="analysis-backend" value="hub_mcp" class="accent-purple-500"/> Hub MCP <span class="text-purple-400">(ask_claude)</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-300">
+              <input type="radio" name="analysis-backend" value="direct" class="accent-purple-500"/> Direct Anthropic API
+            </label>
+          </div>
         </div>
         <div>
-          <label class="block text-xs text-slate-400 mb-1">Hub MCP URL <span class="text-slate-500">(RAG / fallback)</span></label>
+          <label class="block text-xs text-slate-400 mb-1">Hub MCP URL</label>
           <input id="settings-mcp-url" type="text" class="input text-xs font-mono w-full" placeholder="https://…/mcp"/>
-          <p class="text-xs text-slate-500 mt-1">Overridden by <code>CLAUDE_HUB_MCP_URL</code> env var.</p>
+          <p class="text-xs text-slate-500 mt-1">Requis pour Hub MCP (RAG + ask_claude). Overridden by <code>CLAUDE_HUB_MCP_URL</code>.</p>
         </div>
         <div>
-          <label class="block text-xs text-slate-400 mb-1">Hub MCP Token <span class="text-slate-500">(RAG / fallback)</span></label>
+          <label class="block text-xs text-slate-400 mb-1">Hub MCP Token <span class="text-slate-500">(scopes: chat:write + rag:read)</span></label>
           <input id="settings-mcp-token" type="password" class="input text-xs font-mono w-full" placeholder="mcp_…"/>
-          <p class="text-xs text-slate-500 mt-1">Overridden by <code>CLAUDE_HUB_MCP_TOKEN</code> env var.</p>
+          <p class="text-xs text-slate-500 mt-1">Token "Swarm-audit" dans Hub Admin → MCP. Overridden by <code>CLAUDE_HUB_MCP_TOKEN</code>.</p>
+        </div>
+        <div class="md:col-span-2">
+          <label class="block text-xs text-slate-400 mb-1">Anthropic API Key <span class="text-slate-500">(direct uniquement)</span></label>
+          <input id="settings-anthropic-key" type="password" class="input text-xs font-mono w-full" placeholder="sk-ant-…"/>
+          <p class="text-xs text-slate-500 mt-1">Utilisée uniquement si backend = Direct ou Auto sans token Hub. Overridden by <code>ANTHROPIC_API_KEY</code>.</p>
         </div>
         <div class="md:col-span-2 flex items-center gap-3">
           <button onclick="saveSettings()" class="btn btn-primary text-xs">Save</button>
@@ -2695,16 +2710,23 @@ function pollAnalysisStatus() {
       const txt   = document.getElementById('analysis-badge-text');
       if (d.status === 'running') {
         badge.classList.remove('hidden');
-        txt.textContent = 'Analyze in progress…';
+        txt.textContent = d.progress || 'Analyse en cours…';
+        // Show partial results incrementally if analysis tab is open
+        const panel = document.getElementById('panel-analysis');
+        if (!panel.classList.contains('hidden')) {
+          const partial = await fetch(API+'/api/analysis/results');
+          if (partial.ok) renderAnalysis(await partial.json());
+        }
       } else if (d.status === 'done') {
         badge.classList.add('hidden');
         clearInterval(analysisPollTimer);
-        // Auto-switch to Analysis tab if visible
         const panel = document.getElementById('panel-analysis');
         if (!panel.classList.contains('hidden')) loadAnalysis();
       } else if (d.status === 'error' || d.status === 'cancelled') {
         badge.classList.add('hidden');
         clearInterval(analysisPollTimer);
+        const panel = document.getElementById('panel-analysis');
+        if (!panel.classList.contains('hidden')) loadAnalysis();
       } else {
         badge.classList.add('hidden');
         clearInterval(analysisPollTimer);
@@ -2750,17 +2772,20 @@ function renderAnalysis(data) {
   idle.classList.add('hidden');
   results.classList.remove('hidden');
 
+  // Remember active tab before rebuild (for incremental updates during running state)
+  const prevActiveTab = document.querySelector('#analysis-subtabs .tab.active')?.id?.replace('atab-', '');
+
   // Build sub-tabs + panels
   subtabs.innerHTML = '';
   panels.innerHTML  = '';
 
   const allTabs = [...modules.map(m => m.role), corrs.length ? '_CORRELATIONS' : null].filter(Boolean);
-  const firstTab = allTabs[0];
+  const firstTab = prevActiveTab && allTabs.includes(prevActiveTab) ? prevActiveTab : allTabs[0];
 
   allTabs.forEach((tabId, idx) => {
     const label = tabId === '_CORRELATIONS' ? 'Cross-Correlations'
                 : tabId.replace(/_/g,' ');
-    const isFirst = idx === 0;
+    const isFirst = tabId === firstTab;
     const tabEl = document.createElement('div');
     tabEl.className = 'tab' + (isFirst ? ' active' : '');
     tabEl.id = 'atab-' + tabId;
@@ -2866,6 +2891,10 @@ async function loadSettingsValues() {
     if (u) u.value = d.mcp_hub_url || '';
     // Never expose the key value — just signal whether one is configured
     if (ak) ak.placeholder = d.has_anthropic_key ? 'sk-ant-… (configurée)' : 'sk-ant-…';
+    // Restore analysis backend radio
+    const backend = d.analysis_backend || 'auto';
+    const radio = document.querySelector(`input[name="analysis-backend"][value="${backend}"]`);
+    if (radio) radio.checked = true;
   } catch(e) {}
 }
 
@@ -2873,10 +2902,12 @@ async function saveSettings() {
   const token = document.getElementById('settings-mcp-token')?.value;
   const url   = document.getElementById('settings-mcp-url')?.value;
   const ak    = document.getElementById('settings-anthropic-key')?.value;
+  const backendRadio = document.querySelector('input[name="analysis-backend"]:checked');
   const body  = {};
   if (token !== undefined) body.mcp_hub_token     = token;
   if (url !== undefined)   body.mcp_hub_url        = url;
   if (ak !== undefined)    body.anthropic_api_key  = ak;
+  if (backendRadio)        body.analysis_backend   = backendRadio.value;
   const r = await fetch(API+'/api/settings', {
     method: 'PUT',
     headers: {'Content-Type':'application/json'},
