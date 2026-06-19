@@ -284,17 +284,22 @@
 
     <!-- AI Analysis Settings -->
     <div class="mt-6">
-      <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-3">AI Analysis (Claude Hub MCP)</h2>
+      <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-3">AI Analysis</h2>
       <div class="card rounded-xl p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="md:col-span-2">
+          <label class="block text-xs text-slate-400 mb-1">Anthropic API Key <span class="text-emerald-400">(direct — recommandé)</span></label>
+          <input id="settings-anthropic-key" type="password" class="input text-xs font-mono w-full" placeholder="sk-ant-…"/>
+          <p class="text-xs text-slate-500 mt-1">Appelle <code>api.anthropic.com</code> directement, bypass Hub MCP. Overridden by <code>ANTHROPIC_API_KEY</code> env var.</p>
+        </div>
         <div>
-          <label class="block text-xs text-slate-400 mb-1">MCP URL</label>
+          <label class="block text-xs text-slate-400 mb-1">Hub MCP URL <span class="text-slate-500">(RAG / fallback)</span></label>
           <input id="settings-mcp-url" type="text" class="input text-xs font-mono w-full" placeholder="https://…/mcp"/>
           <p class="text-xs text-slate-500 mt-1">Overridden by <code>CLAUDE_HUB_MCP_URL</code> env var.</p>
         </div>
         <div>
-          <label class="block text-xs text-slate-400 mb-1">MCP Token</label>
+          <label class="block text-xs text-slate-400 mb-1">Hub MCP Token <span class="text-slate-500">(RAG / fallback)</span></label>
           <input id="settings-mcp-token" type="password" class="input text-xs font-mono w-full" placeholder="mcp_…"/>
-          <p class="text-xs text-slate-500 mt-1">Overridden by <code>CLAUDE_HUB_MCP_TOKEN</code> env var. Requires scopes <code>rag:read</code> + <code>chat:write</code>.</p>
+          <p class="text-xs text-slate-500 mt-1">Overridden by <code>CLAUDE_HUB_MCP_TOKEN</code> env var.</p>
         </div>
         <div class="md:col-span-2 flex items-center gap-3">
           <button onclick="saveSettings()" class="btn btn-primary text-xs">Save</button>
@@ -2854,19 +2859,24 @@ async function loadSettingsValues() {
     const r = await fetch(API+'/api/settings');
     if (!r.ok) return;
     const d = await r.json();
-    const t = document.getElementById('settings-mcp-token');
-    const u = document.getElementById('settings-mcp-url');
+    const t  = document.getElementById('settings-mcp-token');
+    const u  = document.getElementById('settings-mcp-url');
+    const ak = document.getElementById('settings-anthropic-key');
     if (t) t.value = d.mcp_hub_token || '';
     if (u) u.value = d.mcp_hub_url || '';
+    // Never expose the key value — just signal whether one is configured
+    if (ak) ak.placeholder = d.has_anthropic_key ? 'sk-ant-… (configurée)' : 'sk-ant-…';
   } catch(e) {}
 }
 
 async function saveSettings() {
   const token = document.getElementById('settings-mcp-token')?.value;
   const url   = document.getElementById('settings-mcp-url')?.value;
-  const body = {};
-  if (token !== undefined) body.mcp_hub_token = token;
-  if (url !== undefined)   body.mcp_hub_url = url;
+  const ak    = document.getElementById('settings-anthropic-key')?.value;
+  const body  = {};
+  if (token !== undefined) body.mcp_hub_token     = token;
+  if (url !== undefined)   body.mcp_hub_url        = url;
+  if (ak !== undefined)    body.anthropic_api_key  = ak;
   const r = await fetch(API+'/api/settings', {
     method: 'PUT',
     headers: {'Content-Type':'application/json'},
@@ -2875,6 +2885,7 @@ async function saveSettings() {
   if (r.ok) {
     const el = document.getElementById('settings-saved-msg');
     if (el) { el.classList.remove('hidden'); setTimeout(() => el.classList.add('hidden'), 2500); }
+    loadSettingsValues();  // refresh placeholder to show "configurée"
   }
 }
 

@@ -288,11 +288,12 @@ async def clear_audit():
 async def _do_analysis(results: list[AuditResult]) -> None:
     global _current_analysis, _analysis_cancel
     inv = load_inventory()
-    mcp_url   = os.environ.get("CLAUDE_HUB_MCP_URL", "") or inv.settings.mcp_hub_url
-    mcp_token = os.environ.get("CLAUDE_HUB_MCP_TOKEN", "") or inv.settings.mcp_hub_token
+    mcp_url          = os.environ.get("CLAUDE_HUB_MCP_URL", "") or inv.settings.mcp_hub_url
+    mcp_token        = os.environ.get("CLAUDE_HUB_MCP_TOKEN", "") or inv.settings.mcp_hub_token
+    anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY", "") or inv.settings.anthropic_api_key
 
-    if not mcp_token:
-        log.warning("No CLAUDE_HUB_MCP_TOKEN configured — skipping AI analysis")
+    if not anthropic_api_key and not mcp_token:
+        log.warning("No analysis credentials configured (set Anthropic API key or MCP token) — skipping AI analysis")
         return
 
     _analysis_cancel[0] = False
@@ -300,7 +301,7 @@ async def _do_analysis(results: list[AuditResult]) -> None:
     _current_analysis = AnalysisResult(status="running", started_at=started)
 
     try:
-        result = await run_analysis(results, mcp_url, mcp_token, _analysis_cancel)
+        result = await run_analysis(results, mcp_url, mcp_token, _analysis_cancel, anthropic_api_key)
         result.started_at = started
         result.finished_at = datetime.now(timezone.utc).isoformat()
         _current_analysis = result
@@ -353,8 +354,11 @@ async def cancel_analysis():
 async def get_settings():
     inv = load_inventory()
     return {
-        "mcp_hub_url":   inv.settings.mcp_hub_url,
-        "mcp_hub_token": inv.settings.mcp_hub_token,
+        "mcp_hub_url":       inv.settings.mcp_hub_url,
+        "mcp_hub_token":     inv.settings.mcp_hub_token,
+        "has_anthropic_key": bool(
+            os.environ.get("ANTHROPIC_API_KEY") or inv.settings.anthropic_api_key
+        ),
     }
 
 
@@ -365,6 +369,8 @@ async def update_settings(body: dict):
         inv.settings.mcp_hub_url = str(body["mcp_hub_url"])
     if "mcp_hub_token" in body:
         inv.settings.mcp_hub_token = str(body["mcp_hub_token"])
+    if "anthropic_api_key" in body:
+        inv.settings.anthropic_api_key = str(body["anthropic_api_key"])
     save_inventory(inv)
     return {"ok": True}
 

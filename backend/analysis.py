@@ -1,6 +1,6 @@
-# Version: 2.1.0
-# Date:    2026-06-18
-# Notes:   Add exponential backoff retry on ask_claude 429 rate limit errors
+# Version: 2.2.0
+# Date:    2026-06-19
+# Notes:   Add direct Anthropic API path (bypasses Hub MCP ask_claude when api key set)
 
 from __future__ import annotations
 import asyncio
@@ -79,6 +79,36 @@ RESPONSE_SCHEMA = """{
     }
   ]
 }"""
+
+
+def _call_anthropic_direct(api_key: str, prompt: str) -> str:
+    """Call api.anthropic.com/v1/messages directly — bypass Hub MCP ask_claude."""
+    payload = json.dumps({
+        "model": CLAUDE_MODEL,
+        "max_tokens": 8000,
+        "system": "You are a senior DataCore Swarm infrastructure architect. Return ONLY valid JSON as instructed.",
+        "messages": [{"role": "user", "content": prompt}],
+    }).encode()
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=payload,
+        headers={
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            data = json.loads(resp.read())
+            for block in data.get("content", []):
+                if block.get("type") == "text":
+                    return block["text"]
+        return ""
+    except Exception as exc:
+        log.error("Direct Anthropic API call failed: %s", exc)
+        raise ValueError(f"Direct Anthropic API call failed: {exc}")
 
 
 def _mcp_call_sync(mcp_url: str, token: str, tool: str, arguments: dict) -> dict:
@@ -272,15 +302,18 @@ async def run_analysis(
     mcp_url: str,
     mcp_token: str,
     cancel_flag: list[bool],
+    anthropic_api_key: str = "",
 ) -> AnalysisResult:
     """
-    Run AI analysis on audit results via Hub MCP ask_claude tool.
+    Run AI analysis on audit results.
+    If anthropic_api_key is set, calls Anthropic API directly.
+    Otherwise calls via Hub MCP ask_claude.
     cancel_flag[0] = True → abort with CancelledError.
     """
-    if not mcp_token:
-        raise ValueError("No MCP token configured — cannot run AI analysis")
-    if not mcp_url:
-        raise ValueError("No MCP URL configured — cannot run AI analysis")
+    if not anthropic_api_key and not mcp_token:
+        raise ValueError("No analysis credentials configured (no Anthropic API key and no MCP token)")
+    if not anthropic_api_key and not mcp_url:
+        raise ValueError("No MCP URL configured — cannot run AI analysis via Hub")
 
     loop = asyncio.get_event_loop()
 
@@ -332,26 +365,31 @@ Important:
 - At least 2 findings per module; positive OK findings are valuable
 """
 
-    # ── 3. Call Claude via Hub MCP ask_claude (with 429 retry) ──────────────
-    log.info("Calling ask_claude via MCP (url=%s, model=%s, ~%d chars)…",
-             mcp_url, CLAUDE_MODEL, len(prompt))
-
+    # ── 3. Call Claude ───────────────────────────────────────────────────────
     if cancel_flag[0]:
         raise asyncio.CancelledError()
 
-    resp = await loop.run_in_executor(
-        None, _ask_claude_with_retry,
-        mcp_url, mcp_token, {"prompt": prompt, "model": CLAUDE_MODEL},
-    )
-
-    if resp.get("result", {}).get("isError"):
-        err_content = resp.get("result", {}).get("content", [])
-        err_text = err_content[0].get("text", "unknown error") if err_content else "unknown error"
-        raise ValueError(f"ask_claude returned error: {err_text}")
-
-    raw_text = _extract_ask_claude_answer(resp)
-    if not raw_text:
-        raise ValueError("ask_claude returned empty response")
+    if anthropic_api_key:
+        log.info("Calling Anthropic API directly (model=%s, ~%d chars)…", CLAUDE_MODEL, len(prompt))
+        raw_text = await loop.run_in_executor(
+            None, _call_anthropic_direct, anthropic_api_key, prompt
+        )
+        if not raw_text:
+            raise ValueError("Anthropic API returned empty response")
+    else:
+        log.info("Calling ask_claude via MCP (url=%s, model=%s, ~%d chars)…",
+                 mcp_url, CLAUDE_MODEL, len(prompt))
+        resp = await loop.run_in_executor(
+            None, _ask_claude_with_retry,
+            mcp_url, mcp_token, {"prompt": prompt, "model": CLAUDE_MODEL},
+        )
+        if resp.get("result", {}).get("isError"):
+            err_content = resp.get("result", {}).get("content", [])
+            err_text = err_content[0].get("text", "unknown error") if err_content else "unknown error"
+            raise ValueError(f"ask_claude returned error: {err_text}")
+        raw_text = _extract_ask_claude_answer(resp)
+        if not raw_text:
+            raise ValueError("ask_claude returned empty response")
 
     # Strip markdown code fences if present despite instructions
     for fence_open in ("```json\n", "```json", "```\n", "```"):

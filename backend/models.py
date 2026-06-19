@@ -1,6 +1,6 @@
-# Version: 2.0.0
-# Date:    2026-06-18
-# Notes:   Replace anthropic_api_key with mcp_hub_url in InventorySettings
+# Version: 2.1.0
+# Date:    2026-06-19
+# Notes:   Re-add anthropic_api_key to InventorySettings for direct API fallback
 
 from __future__ import annotations
 from typing import Optional, Literal
@@ -208,6 +208,7 @@ class AnalysisResult(BaseModel):
 class InventorySettings(BaseModel):
     mcp_hub_url: str = "https://claude-ws-gmarais.duckdns.org/mcp"
     mcp_hub_token: str = ""
+    anthropic_api_key: str = ""
 
 
 # ─── Inventory file ───────────────────────────────────────────────────────────
