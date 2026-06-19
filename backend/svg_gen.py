@@ -1,9 +1,7 @@
-# Version: 9.1.0
-# Date:    2026-06-18
-# Notes:   Vertical backbones: public (green) LEFT, private (blue) RIGHT
-#          Public stubs exit tile TOP going LEFT — private stubs exit tile BOTTOM going RIGHT
-#          Geometrically guaranteed no crossings between public and private wires
-#          SVG width=100% (responsive, fills container)
+# Version: 9.2.0
+# Date:    2026-06-19
+# Notes:   SVG uses explicit pixel dimensions (not width=100%) so _applySvgZoom
+#          reads correct size from getAttribute('width') — fixes tiny rendering
 
 from __future__ import annotations
 import html as _html_mod
@@ -634,7 +632,7 @@ def generate_svg(results: list[AuditResult]) -> str:
     parts.append(
         f'<svg xmlns="http://www.w3.org/2000/svg" '
         f'viewBox="0 0 {total_w} {total_h}" '
-        f'width="100%" '
+        f'width="{total_w}" height="{total_h}" '
         f'style="background:#0c1524;font-family:{FONT};display:block;">'
     )
 
