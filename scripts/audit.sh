@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Version: 2.15.0
-# Date:    2026-06-18
-# Notes:   Collect last-24h application logs per detected role (journald + file fallback).
+# Version: 2.16.0
+# Date:    2026-06-20
+# Notes:   SCS: inject scsctl storage/platform config show -d into config_contents.
 
 set -euo pipefail
 
@@ -416,6 +416,35 @@ for _cfp in "${_cfg_paths[@]}"; do
 done
 [ -n "$_cf" ] && CONFIG_FILES="[${_cf}]"
 [ -n "$_cc_pairs" ] && CONFIG_CONTENTS="{${_cc_pairs}}"
+
+# ─── SCS: collect config via scsctl (no static config files on SCS nodes) ────
+# scsctl storage config show -d → cluster-wide storage parameters (from etcd)
+# scsctl platform config show -d → platform/SCS service parameters (from etcd)
+if _has_role "SCS" && command -v scsctl &>/dev/null 2>&1; then
+    _scsctl_storage=$(scsctl storage config show -d 2>/dev/null | head -c 16384 || true)
+    _scsctl_platform=$(scsctl platform config show -d 2>/dev/null | head -c 16384 || true)
+
+    _inject_scsctl() {
+        local _label="$1" _content="$2"
+        [ -z "$_content" ] && return
+        local _esc
+        _esc=$(printf '%s' "$_content" \
+            | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g; s/\r//g' \
+            | awk '{printf "%s\\n", $0}')
+        [ -n "$_cc_pairs" ] && _cc_pairs="${_cc_pairs},"
+        _cc_pairs="${_cc_pairs}\"${_label}\":\"${_esc}\""
+        # also add to file list so analysis knows it exists
+        [ -n "$_cf" ] && _cf="${_cf},"
+        _cf="${_cf}\"${_label}\""
+    }
+
+    _inject_scsctl "scsctl://storage/config"  "$_scsctl_storage"
+    _inject_scsctl "scsctl://platform/config" "$_scsctl_platform"
+
+    # Rebuild JSON with the new entries
+    [ -n "$_cf" ]       && CONFIG_FILES="[${_cf}]"
+    [ -n "$_cc_pairs" ] && CONFIG_CONTENTS="{${_cc_pairs}}"
+fi
 
 # ─── Gateway config parsing ────────────────────────────────────────────────────
 # Parse gateway.cfg to extract IPs for the Swarm cluster, ES, and LCS.
