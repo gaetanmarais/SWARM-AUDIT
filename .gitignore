@@ -1,4 +1,6 @@
 data/
+inventory.json
+credentials.json
 UPLOADS/
 wiki-scrape/
 CLAUDE.md
