@@ -520,6 +520,19 @@ _cfg_paths+=(
     /etc/alertmanager/alertmanager.yaml
     /opt/alertmanager/alertmanager.yml
     /etc/grafana/grafana.ini
+    /etc/rabbitmq/rabbitmq.conf
+    /etc/rabbitmq/rabbitmq.config
+    /etc/rabbitmq/advanced.config
+    /etc/chrony.conf
+    /etc/chrony/chrony.conf
+    /etc/ntp.conf
+    /etc/dhcp/dhcpd.conf
+    /etc/dhcpd.conf
+    /etc/dhcp/dhcpd6.conf
+    /etc/rsyslog.conf
+    /etc/syslog-ng/syslog-ng.conf
+    /etc/default/tftpd-hpa
+    /etc/xinetd.d/tftp
 )
 # Prometheus alert/recording rules — glob-collected (may be multiple files)
 for _rf in \
@@ -527,6 +540,14 @@ for _rf in \
     /etc/prometheus/rules.d/*.yml    /etc/prometheus/rules.d/*.yaml \
     /etc/prometheus/alerts/*.yml     /etc/prometheus/alerts/*.yaml \
     /etc/prometheus/conf.d/*.yml     /etc/prometheus/conf.d/*.yaml; do
+    [ -f "$_rf" ] && _cfg_paths+=("$_rf")
+done
+# rsyslog drop-in configs
+for _rf in /etc/rsyslog.d/*.conf; do
+    [ -f "$_rf" ] && _cfg_paths+=("$_rf")
+done
+# syslog-ng drop-in configs
+for _rf in /etc/syslog-ng/conf.d/*.conf; do
     [ -f "$_rf" ] && _cfg_paths+=("$_rf")
 done
 
