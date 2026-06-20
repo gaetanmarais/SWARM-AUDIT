@@ -1,7 +1,7 @@
-# Version: 12.0.0
+# Version: 13.0.0
 # Date:    2026-06-20
-# Notes:   Vertical LEFT(public)/RIGHT(private) backbones; L-wire routing anti-croisement;
-#          badges NIC INTERNES tuile (PUBLIC haut-gauche, PRIVE bas-droite)
+# Notes:   Responsive SVG (viewBox only, width=100%); layer order HA→SCS/CSN→GW→LCS→ES/FDB→STORAGE;
+#          tiles centered per role line; one role family per row
 
 from __future__ import annotations
 import html as _html_mod
@@ -11,21 +11,22 @@ import math as _math
 from models import AuditResult, DiscoveredStorageNode
 
 # ─── Role → display layer ─────────────────────────────────────────────────────
+# Order top-to-bottom: HA(0) → SCS/CSN(1) → GW(2) → LCS(3) → ES/FDB(4) → STORAGE(5)
 ROLE_LAYERS: dict[str, int] = {
     "HAPROXY":              0,
-    "CONTENT_GATEWAY":      1,
     "SCS":                  1,
-    "STORAGE_UI":           2,
-    "CONTENT_UI":           2,
-    "SWARMFS":              2,
+    "CSN_PLATFORM":         1,
+    "CONTENT_GATEWAY":      2,
     "LISTING_CACHE":        3,
     "LISTING_CACHE_SERVER": 3,
     "ELASTICSEARCH":        4,
-    "CSN_PLATFORM":         4,
+    "FOUNDATION_DB":        4,
     "TELEMETRY":            4,
-    "FOUNDATION_DB":        5,
     "STORAGE_NODE":         5,
-    "UNKNOWN":              6,
+    "STORAGE_UI":           5,
+    "SWARMFS":              5,
+    "CONTENT_UI":           6,
+    "UNKNOWN":              7,
 }
 
 ROLE_COLORS: dict[str, str] = {
@@ -63,13 +64,14 @@ ROLE_SHORT: dict[str, str] = {
 }
 
 LAYER_LABELS: dict[int, str] = {
-    0: "Load Balancer",
-    1: "Gateway / Services",
-    2: "UI / NFS",
-    3: "Cache (LCS)",
-    4: "Search / Management",
+    0: "HA — Load Balancer",
+    1: "SCS / CSN",
+    2: "GW — Content Gateway",
+    3: "LCS — Listing Cache",
+    4: "ES / FDB — Search & DB",
     5: "Storage",
-    6: "Unknown",
+    6: "UI",
+    7: "Unknown",
 }
 
 SUBNET_PALETTE = [
@@ -608,7 +610,8 @@ def _draw_row_wires(
 def generate_svg(results: list[AuditResult]) -> str:
     if not results:
         return (
-            '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="100">'
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 100" '
+            'style="display:block;width:100%;height:auto;background:#0c1524;">'
             '<text x="20" y="50" font-family="monospace" fill="#94a3b8">'
             'No audit results yet.</text></svg>'
         )
@@ -811,8 +814,9 @@ def generate_svg(results: list[AuditResult]) -> str:
     parts.append(
         f'<svg xmlns="http://www.w3.org/2000/svg" '
         f'viewBox="0 0 {total_w} {total_h}" '
-        f'width="{total_w}" height="{total_h}" '
-        f'style="background:#0c1524;font-family:{FONT};display:block;">'
+        f'preserveAspectRatio="xMidYMid meet" '
+        f'data-natural-w="{total_w}" data-natural-h="{total_h}" '
+        f'style="background:#0c1524;font-family:{FONT};display:block;width:100%;height:auto;">'
     )
 
     # Arrowhead markers

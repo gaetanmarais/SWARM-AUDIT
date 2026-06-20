@@ -53,8 +53,8 @@
   .role-badge { padding:2px 8px; border-radius:12px; font-size:11px; font-weight:600; color:#fff; }
   .tab { cursor:pointer; padding:8px 16px; border-bottom:2px solid transparent; color:var(--fg-dim); font-size:13px; }
   .tab.active { border-color:#3b82f6; color:var(--fg); }
-  #diagram-container { cursor: grab; height: calc(100vh - 160px); overflow: auto; width: 95vw; max-width: 100%; }
-  #diagram-container svg { display:block; width:100%; height:auto; }
+  #diagram-container { cursor: grab; height: calc(100vh - 160px); overflow: auto; width: 100%; }
+  #diagram-inner svg { display:block; width:100%; height:auto; }
   .spinner { animation:spin 1s linear infinite; }
   @keyframes spin { to { transform:rotate(360deg); } }
   .pulse { animation:pulse 2s ease-in-out infinite; }
@@ -190,7 +190,7 @@
       </a>
     </div>
     <div id="diagram-container" class="card rounded-xl p-4 overflow-auto min-h-64">
-      <div id="diagram-inner" style="display:inline-block;transform-origin:0 0;">
+      <div id="diagram-inner" style="display:block;transform-origin:0 0;overflow:hidden;">
         <p class="text-slate-500 text-sm">Run an audit to generate the infrastructure diagram.</p>
       </div>
     </div>
@@ -2616,15 +2616,25 @@ function _applySvgZoom() {
   if (!inner) return;
   const svg = inner.querySelector('svg');
   if (!svg) return;
-  const w = parseInt(svg.getAttribute('width') || 0);
-  const h = parseInt(svg.getAttribute('height') || 0);
-  inner.style.transform = `scale(${_svgZoom})`;
-  // Keep layout size = natural SVG size so scroll tracks the visual extent
-  if (w) inner.style.width  = w + 'px';
-  if (h) inner.style.height = h + 'px';
-  // Expand layout area by the scaled-up overhang so scrollbar is accurate
-  inner.style.marginRight  = w ? Math.max(0, w  * (_svgZoom - 1)) + 'px' : '';
-  inner.style.marginBottom = h ? Math.max(0, h  * (_svgZoom - 1)) + 'px' : '';
+  const container = document.getElementById('diagram-container');
+
+  // Natural SVG dimensions from data attrs (set by svg_gen.py)
+  const naturalW = parseInt(svg.getAttribute('data-natural-w') || 0);
+  const naturalH = parseInt(svg.getAttribute('data-natural-h') || 0);
+
+  // Base display width = container width (fills viewport at zoom=1)
+  const containerW = container.clientWidth - 32; // subtract card padding
+  const baseW = containerW;
+  const scaledW = Math.round(baseW * _svgZoom);
+  const scaledH = naturalW && naturalH ? Math.round(naturalH * (baseW / naturalW) * _svgZoom) : scaledW;
+
+  // Resize inner div; SVG is width:100% height:auto so it fills inner
+  inner.style.transform = '';
+  inner.style.width  = scaledW + 'px';
+  inner.style.height = scaledH + 'px';
+  inner.style.marginRight  = '';
+  inner.style.marginBottom = '';
+
   const lbl = document.getElementById('zoom-label');
   if (lbl) lbl.textContent = Math.round(_svgZoom * 100) + '%';
 }
