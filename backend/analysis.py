@@ -1,6 +1,6 @@
-# Version: 3.3.0
+# Version: 3.4.0
 # Date:    2026-06-20
-# Notes:   TELEMETRY role + Prometheus/Alertmanager deep analysis (coverage, thresholds, routing)
+# Notes:   Role order HA→SCS→GW→LCS→ES→STO, findings sorted CRITICAL→WARNING→INFO→OK
 
 from __future__ import annotations
 import asyncio
@@ -301,8 +301,25 @@ def _call_claude_sync(
     return text
 
 
+# Canonical display order — mirrors the SVG diagram layers
+ROLE_ORDER = [
+    "HAPROXY",
+    "SCS", "CSN_PLATFORM",
+    "CONTENT_GATEWAY",
+    "LISTING_CACHE_SERVER", "LISTING_CACHE",
+    "ELASTICSEARCH",
+    "CASTOR", "STORAGE_NODE",
+    "TELEMETRY",
+    "FOUNDATION_DB", "SWARMFS", "CONTENT_UI", "STORAGE_UI",
+    "UNKNOWN",
+]
+
+SEVERITY_ORDER = {"CRITICAL": 0, "WARNING": 1, "INFO": 2, "OK": 3}
+
+
 def _group_by_role(results: list[AuditResult]) -> dict[str, list[AuditResult]]:
-    """Group servers by detected role. Multi-role servers appear in each group.
+    """Group servers by detected role, ordered per ROLE_ORDER.
+    Multi-role servers appear in each group.
     Failed servers (success=False) land in UNKNOWN."""
     groups: dict[str, list[AuditResult]] = {}
     for r in results:
@@ -312,7 +329,13 @@ def _group_by_role(results: list[AuditResult]) -> dict[str, list[AuditResult]]:
         for rd in r.roles:
             role = rd.role or "UNKNOWN"
             groups.setdefault(role, []).append(r)
-    return groups
+    # Re-order according to ROLE_ORDER, unknown roles appended at the end
+    ordered: dict[str, list[AuditResult]] = {}
+    for role in ROLE_ORDER:
+        if role in groups:
+            ordered[role] = groups.pop(role)
+    ordered.update(groups)  # any leftover roles not in ROLE_ORDER
+    return ordered
 
 
 async def _fetch_rag_cache(
@@ -350,7 +373,7 @@ async def _fetch_rag_cache(
 
 
 def _parse_findings(lst: list) -> list[AnalysisFinding]:
-    """Parse a list of finding dicts into AnalysisFinding objects."""
+    """Parse finding dicts into AnalysisFinding objects, sorted CRITICAL→WARNING→INFO→OK."""
     out: list[AnalysisFinding] = []
     for f in lst or []:
         try:
@@ -358,11 +381,15 @@ def _parse_findings(lst: list) -> list[AnalysisFinding]:
                 severity=f.get("severity", "INFO"),
                 title=f.get("title", ""),
                 detail=f.get("detail", ""),
+                current_value=f.get("current_value", ""),
+                corrected_config=f.get("corrected_config", ""),
                 recommendation=f.get("recommendation", ""),
+                doc_reference=f.get("doc_reference", ""),
                 servers=f.get("servers", []),
             ))
         except Exception:
             pass
+    out.sort(key=lambda x: SEVERITY_ORDER.get(x.severity, 99))
     return out
 
 
