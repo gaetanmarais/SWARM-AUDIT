@@ -1,6 +1,6 @@
-# Version: 1.9.0
-# Date:    2026-06-18
-# Notes:   export-report inlines Tailwind CDN for fully offline HTML.
+# Version: 1.10.0
+# Date:    2026-06-20
+# Notes:   Export filename includes cluster name + date; cluster name extracted from ES cluster_name.
 
 from __future__ import annotations
 import asyncio
@@ -450,6 +450,14 @@ async def get_health_report():
     return HTMLResponse(html)
 
 
+def _extract_cluster_name(results: list[AuditResult]) -> str:
+    """Best-effort cluster name from audit results — ES cluster name is most reliable."""
+    for r in results:
+        if r.es_cluster_name:
+            return r.es_cluster_name
+    return "swarm"
+
+
 @app.get("/api/export-report")
 async def export_report():
     """Self-contained 3-tab HTML report (Diagram / Audit / Analysis) — no backend required."""
@@ -469,14 +477,20 @@ async def export_report():
         if inv2.last_analysis and inv2.last_analysis.status == "done":
             analysis_obj = inv2.last_analysis
 
+    cluster_name = _extract_cluster_name(results)
+    now = datetime.now(timezone.utc)
+    generated_at = now.strftime("%Y-%m-%d %H:%M UTC")
+    date_str = now.strftime("%Y%m%d")
+    safe_cluster = re.sub(r"[^a-zA-Z0-9_-]", "-", cluster_name)
+    filename = f"arcis-swarm-{safe_cluster}-{date_str}.html"
+
     svg_content = generate_svg(results)
-    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    html_content = generate_report_html(results, svg_content, analysis_obj, generated_at)
+    html_content = generate_report_html(results, svg_content, analysis_obj, generated_at, cluster_name)
 
     return Response(
         content=html_content.encode("utf-8"),
         media_type="text/html; charset=utf-8",
-        headers={"Content-Disposition": 'attachment; filename="arcis-swarm-report.html"'},
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

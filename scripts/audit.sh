@@ -245,6 +245,18 @@ if proc_running "swarmfs" || svc_active "swarmfs" \
     add_role "SWARMFS" "process/svc:swarmfs or cfg"
 fi
 
+# ─── CASTOR (DataCore Swarm storage node) ────────────────────────────────────
+# node.cfg is the definitive Castor fingerprint — present only on storage nodes.
+# Exclude HAProxy/Gateway nodes that may have caringo packages installed as deps.
+if ! _has_role "HAPROXY" && ! _has_role "CONTENT_GATEWAY"; then
+    if proc_running "castor" || svc_active "castor" || svc_active "castord" \
+       || svc_active "datacore-castor" \
+       || file_exists /etc/caringo/node.cfg \
+       || file_exists /var/opt/caringo/node; then
+        add_role "CASTOR" "process/svc/cfg:castor storage node"
+    fi
+fi
+
 # ─── TELEMETRY (Prometheus / Grafana) ───────────────────────────────────────
 _telemetry_reason=""
 if proc_running "prometheus" || svc_active "prometheus" \
@@ -386,6 +398,8 @@ _cfg_paths+=(
     /opt/caringo/swarmfs/conf/swarmfs.cfg
     /etc/caringo/node.cfg
     /etc/caringo/cluster.cfg
+    /opt/caringo/castor/conf/castor.cfg
+    /var/opt/caringo/node/node.cfg
     /etc/foundationdb/fdb.cluster
     /etc/elasticsearch/elasticsearch.yml
     /etc/prometheus/prometheus.yml

@@ -1,6 +1,6 @@
-# Version: 1.0.0
+# Version: 1.1.0
 # Date:    2026-06-20
-# Notes:   Generate self-contained 3-tab HTML report (Diagram / Audit / Analysis).
+# Notes:   Add cluster_name param — shown in title, header, and passed via filename from main.py.
 
 from __future__ import annotations
 import html
@@ -254,6 +254,7 @@ def generate_report_html(
     svg_content: str,
     analysis: Optional[AnalysisResult],
     generated_at: Optional[str] = None,
+    cluster_name: str = "swarm",
 ) -> str:
     if generated_at is None:
         generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -294,15 +295,15 @@ def generate_report_html(
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ARCIS-SWARM Report — {generated_at}</title>
+<title>ARCIS-SWARM — {html.escape(cluster_name)} — {generated_at}</title>
 <style>{CSS}</style>
 </head>
 <body>
 
 <div id="header">
   <div>
-    <h1>ARCIS-SWARM</h1>
-    <div class="meta">{n_servers} servers · {n_critical} critical findings · {generated_at}</div>
+    <h1>ARCIS-SWARM — {html.escape(cluster_name)}</h1>
+    <div class="meta">{n_servers} servers · {n_critical} critical findings · Generated {generated_at}</div>
   </div>
   <div style="font-size:.7rem;color:#475569">Static report — read only</div>
 </div>

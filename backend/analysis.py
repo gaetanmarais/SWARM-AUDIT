@@ -1,6 +1,6 @@
-# Version: 3.4.0
+# Version: 3.5.0
 # Date:    2026-06-20
-# Notes:   Role order HA→SCS→GW→LCS→ES→STO, findings sorted CRITICAL→WARNING→INFO→OK
+# Notes:   Fix max_tokens truncation, CASTOR analysis, log contradictory prompt, swarm_cluster_summary in prompt
 
 from __future__ import annotations
 import asyncio
@@ -63,7 +63,18 @@ MODULE_SCHEMA = """{
       "servers": ["server_name"]
     }
   ],
-  "log_findings": []
+  "log_findings": [
+    {
+      "severity": "CRITICAL|WARNING|INFO|OK",
+      "title": "Short title describing the log pattern",
+      "detail": "Explain what the log pattern indicates and why it matters",
+      "current_value": "Representative log line(s) — e.g. '[x47] ERROR: Connection refused to 10.x.x.x:9200'",
+      "corrected_config": "Configuration fix that would resolve this log pattern, if applicable",
+      "recommendation": "What to investigate or fix based on these log patterns",
+      "doc_reference": "DataCore doc reference if relevant",
+      "servers": ["server_name"]
+    }
+  ]
 }"""
 
 CROSS_SCHEMA = """{
@@ -86,7 +97,7 @@ def _call_anthropic_direct(api_key: str, prompt: str, system: str) -> str:
     """Call api.anthropic.com/v1/messages directly — bypass Hub MCP ask_claude."""
     payload = json.dumps({
         "model": CLAUDE_MODEL,
-        "max_tokens": 8000,
+        "max_tokens": 16000,
         "system": system,
         "messages": [{"role": "user", "content": prompt}],
     }).encode()
@@ -246,11 +257,22 @@ def _server_summary(r: AuditResult) -> str:
     if r.es_cluster_name:
         lines.append(f"  ES cluster: {r.es_cluster_name}")
 
+    if r.swarm_cluster_summary:
+        lines.append(f"  SWARM CLUSTER SUMMARY:\n{r.swarm_cluster_summary[:3000]}")
+
+    if r.discovered_storage_nodes:
+        lines.append(f"  STORAGE NODES ({len(r.discovered_storage_nodes)} discovered):")
+        for node in r.discovered_storage_nodes[:30]:
+            lines.append(
+                f"    {node.ip}: status={node.status} avail={node.avail_pct}%"
+                f" used={node.used}/{node.max} streams={node.streams}"
+                f" errors={node.errors or 'none'}"
+            )
+
     if r.logs:
         lines.append("  APPLICATION LOGS (last 24h, deduplicated — format [xN] = N occurrences):")
         for role_key, log_text in r.logs.items():
             if log_text:
-                # Keep at most 3000 chars per role log to avoid token explosion
                 snippet = log_text[:3000]
                 if len(log_text) > 3000:
                     snippet += f"\n  ... ({len(log_text) - 3000} more chars truncated)"
@@ -285,7 +307,7 @@ def _call_claude_sync(
 
     # hub_mcp: ask_claude has no system param — embed system at top of prompt
     full_prompt = f"{system}\n\n{prompt}"
-    ask_args: dict = {"prompt": full_prompt, "model": CLAUDE_MODEL}
+    ask_args: dict = {"prompt": full_prompt, "model": CLAUDE_MODEL, "max_tokens": 16000}
     # Pass api_key to ask_claude so it uses a dedicated Anthropic account
     # instead of the Hub's shared OAuth token (avoids shared-quota 429s)
     if api_key:
@@ -422,8 +444,8 @@ async def _analyze_role_group(
             rag_block = f"\nSWARM KNOWLEDGE BASE:\n{rag_text}"
 
         system = (
-            "You are a senior DataCore Swarm infrastructure architect performing a configuration audit.\n"
-            "Analyze ONLY the configuration files provided — do not speculate about logs or runtime state.\n"
+            "You are a senior DataCore Swarm infrastructure architect performing a configuration and log audit.\n"
+            "Analyze the configuration files AND application logs provided below. Do not speculate about information absent from the provided data.\n"
             "Return ONLY valid JSON — no text, no markdown, no code fences.\n"
             "Severity: CRITICAL (immediate risk), WARNING (should fix), INFO (observation), OK (correct).\n"
             "For every non-OK finding you MUST populate:\n"
