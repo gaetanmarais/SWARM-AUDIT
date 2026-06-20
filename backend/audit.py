@@ -278,6 +278,8 @@ def extract_candidate_ips(
         ip = raw_ip.split(":")[0].strip()
         if not ip or ip in known_ips or ip in seen:
             return
+        if ip.startswith("127.") or ip == "0.0.0.0" or ip == "::1":
+            return
         seen.add(ip)
         candidates.append(DiscoveredServer(ip=ip, source=source, hint_role=hint_role))
 
