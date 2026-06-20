@@ -1,6 +1,6 @@
-# Version: 3.5.0
+# Version: 3.5.1
 # Date:    2026-06-20
-# Notes:   Fix max_tokens truncation, CASTOR analysis, log contradictory prompt, swarm_cluster_summary in prompt
+# Notes:   Remove max_tokens from ask_claude call (not supported by Hub MCP)
 
 from __future__ import annotations
 import asyncio
@@ -307,7 +307,7 @@ def _call_claude_sync(
 
     # hub_mcp: ask_claude has no system param — embed system at top of prompt
     full_prompt = f"{system}\n\n{prompt}"
-    ask_args: dict = {"prompt": full_prompt, "model": CLAUDE_MODEL, "max_tokens": 16000}
+    ask_args: dict = {"prompt": full_prompt, "model": CLAUDE_MODEL}
     # Pass api_key to ask_claude so it uses a dedicated Anthropic account
     # instead of the Hub's shared OAuth token (avoids shared-quota 429s)
     if api_key:

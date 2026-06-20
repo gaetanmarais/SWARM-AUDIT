@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Version: 2.17.0
+# Version: 2.18.0
 # Date:    2026-06-20
-# Notes:   TELEMETRY: detect alertmanager, add alertmanager config paths.
+# Notes:   Add NTP/syslog client collection, keepalived unicast peers; fix _has_role early-call bug.
 
 set -euo pipefail
 
@@ -123,6 +123,7 @@ add_role() {
         ROLES="${ROLES%]},${entry}]"
     fi
 }
+_has_role() { printf '%s' "$ROLES" | grep -q "\"role\":\"$1\""; }
 
 # ─── HAPROXY ────────────────────────────────────────────────────────────────
 # Require process/service RUNNING — config file alone is not enough (haproxy
@@ -319,6 +320,46 @@ if proc_running tftpd || proc_running "in.tftpd" || proc_running atftpd \
     IS_PXE_SERVER=true
 fi
 
+# ─── NTP client servers (IPs this node synchronizes from) ─────────────────────
+NTP_CLIENT_SERVERS="[]"
+_ntp_ips=""
+for _ntpf in /etc/chrony.conf /etc/chrony/chrony.conf /etc/ntp.conf /etc/ntpd.conf; do
+    [ -f "$_ntpf" ] || continue
+    _ntp_ips=$(grep -iE '^\s*(server|pool)\s+([0-9]{1,3}\.){3}[0-9]{1,3}' "$_ntpf" 2>/dev/null \
+        | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' \
+        | sort -u | awk '{printf "\"%s\",", $1}' | sed 's/,$//' || true)
+    [ -n "$_ntp_ips" ] && break
+done
+if [ -z "$_ntp_ips" ] && command -v chronyc &>/dev/null; then
+    _ntp_ips=$(chronyc sources -n 2>/dev/null \
+        | awk '/^\^[*+?]/{print $2}' \
+        | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' \
+        | sort -u | awk '{printf "\"%s\",", $1}' | sed 's/,$//' || true)
+fi
+[ -n "$_ntp_ips" ] && NTP_CLIENT_SERVERS="[${_ntp_ips}]"
+
+# ─── Syslog forwarding targets (remote syslog servers this node sends to) ────
+SYSLOG_TARGETS="[]"
+_syslog_ips=""
+if [ -d /etc/rsyslog.d ] || [ -f /etc/rsyslog.conf ]; then
+    _syslog_ips=$(cat /etc/rsyslog.conf /etc/rsyslog.d/*.conf 2>/dev/null \
+        | grep -v '^\s*#' \
+        | grep -iE '@{1,2}([0-9]{1,3}\.){3}[0-9]{1,3}' \
+        | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' \
+        | sort -u | awk '{printf "\"%s\",", $1}' | sed 's/,$//' || true)
+fi
+if [ -z "$_syslog_ips" ]; then
+    for _sgf in /etc/syslog-ng/syslog-ng.conf /etc/syslog-ng/conf.d/*.conf; do
+        [ -f "$_sgf" ] || continue
+        _r=$(grep -hiE '(tcp|udp)\s*\(' "$_sgf" 2>/dev/null \
+            | grep -oE '"([0-9]{1,3}\.){3}[0-9]{1,3}"' \
+            | tr -d '"' | sort -u \
+            | awk '{printf "\"%s\",", $1}' | sed 's/,$//' || true)
+        [ -n "$_r" ] && { _syslog_ips="$_r"; break; }
+    done
+fi
+[ -n "$_syslog_ips" ] && SYSLOG_TARGETS="[${_syslog_ips}]"
+
 # ─── Listening ports snapshot ──────────────────────────────────────────────────
 
 LISTEN_PORTS="[]"
@@ -346,6 +387,28 @@ if (proc_running haproxy || svc_active haproxy) \
         | sed 's/,$//' || true)
     [ -n "$_vips" ] && HAPROXY_VIPS="[${_vips}]"
 fi
+
+# ─── Keepalived unicast peers (other HA nodes in the VRRP peer group) ─────────
+KEEPALIVED_PEERS="[]"
+_ka_peers_raw=""
+_ka_conf_p=""
+for _kf in /etc/keepalived/keepalived.conf /etc/keepalived.conf; do
+    [ -f "$_kf" ] && { _ka_conf_p="$_kf"; break; }
+done
+if [ -z "$_ka_conf_p" ] && [ -d /etc/keepalived ]; then
+    for _kf in /etc/keepalived/*.conf /etc/keepalived/conf.d/*.conf; do
+        [ -f "$_kf" ] && { _ka_conf_p="$_kf"; break; }
+    done
+fi
+if [ -n "$_ka_conf_p" ]; then
+    _ka_peers_raw=$(awk '/unicast_peer[[:space:]]*\{/,/\}/' "$_ka_conf_p" 2>/dev/null \
+        | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' \
+        | sort -u | awk '{printf "\"%s\",", $1}' | sed 's/,$//' || true)
+    [ -z "$_ka_peers_raw" ] && _ka_peers_raw=$(grep -iE 'unicast_peer' "$_ka_conf_p" 2>/dev/null \
+        | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' \
+        | sort -u | awk '{printf "\"%s\",", $1}' | sed 's/,$//' || true)
+fi
+[ -n "$_ka_peers_raw" ] && KEEPALIVED_PEERS="[${_ka_peers_raw}]"
 
 # ─── HAProxy backends (config-based topology) ─────────────────────────────────
 
@@ -984,6 +1047,9 @@ cat <<EOF
   "es_node_stats": "$(jq_escape "$ES_NODE_STATS")",
   "es_cat_alloc": "$(jq_escape "$ES_CAT_ALLOC")",
   "es_disk_info": $ES_DISK_INFO,
+  "ntp_client_servers": $NTP_CLIENT_SERVERS,
+  "syslog_targets": $SYSLOG_TARGETS,
+  "keepalived_peers": $KEEPALIVED_PEERS,
   "listen_ports": $LISTEN_PORTS,
   "network_interfaces": $NETWORK_INTERFACES,
   "connections": $NET_CONNS,

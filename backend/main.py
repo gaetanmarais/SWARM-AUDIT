@@ -1,6 +1,6 @@
-# Version: 1.10.0
+# Version: 1.12.0
 # Date:    2026-06-20
-# Notes:   Export filename includes cluster name + date; cluster name extracted from ES cluster_name.
+# Notes:   Split storage: credentials.json (secrets) + inventory.json (servers/audit/settings)
 
 from __future__ import annotations
 import asyncio
@@ -25,8 +25,9 @@ from models import (
     Server, ServerCreate,
     Inventory, AuditRun, AuditResult,
     AnalysisResult, AnalysisModule, InventorySettings,
+    DiscoveryRun,
 )
-from audit import run_audit
+from audit import run_audit, run_discovery, extract_candidate_ips
 from svg_gen import generate_svg
 from health_report import generate_health_report_html
 from analysis import run_analysis
@@ -35,11 +36,12 @@ from report_gen import generate_report_html
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
-_APP_ROOT      = Path(__file__).parent.parent
-DATA_DIR       = Path(os.environ.get("SWARM_DATA_DIR", _APP_ROOT / "data"))
-INVENTORY_FILE = DATA_DIR / "inventory.json"
-FRONTEND_DIR   = _APP_ROOT / "frontend"
-DUMPS_DIR      = DATA_DIR / "dumps"
+_APP_ROOT        = Path(__file__).parent.parent
+DATA_DIR         = Path(os.environ.get("SWARM_DATA_DIR", _APP_ROOT / "data"))
+INVENTORY_FILE   = DATA_DIR / "inventory.json"    # servers, audit, analysis, settings
+CREDENTIALS_FILE = DATA_DIR / "credentials.json"  # credentials (secrets — never exported)
+FRONTEND_DIR     = _APP_ROOT / "frontend"
+DUMPS_DIR        = DATA_DIR / "dumps"
 
 app = FastAPI(title="ARCIS-SWARM", version="1.0.0")
 
@@ -76,19 +78,51 @@ app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 
 
 # ─── Inventory persistence ────────────────────────────────────────────────────
+# inventory.json   → servers, audit results, analysis, settings (no secrets)
+# credentials.json → credential profiles with passwords/keys (never exported)
 
 def load_inventory() -> Inventory:
+    inv = Inventory()
     if INVENTORY_FILE.is_file():
         try:
-            return Inventory.model_validate_json(INVENTORY_FILE.read_text())
+            inv = Inventory.model_validate_json(INVENTORY_FILE.read_text())
         except Exception:
             log.warning("inventory.json unreadable — returning empty inventory")
-    return Inventory()
+
+    if CREDENTIALS_FILE.is_file():
+        # Load credentials from their dedicated file
+        try:
+            raw = json.loads(CREDENTIALS_FILE.read_text())
+            from models import Credential
+            inv.credentials = [Credential(**c) for c in raw.get("credentials", [])]
+        except Exception:
+            log.warning("credentials.json unreadable")
+            inv.credentials = []
+    else:
+        # One-time migration: move any legacy credentials out of inventory.json
+        if inv.credentials:
+            _migrate_credentials(inv.credentials)
+        inv.credentials = []
+
+    return inv
+
+
+def _migrate_credentials(creds) -> None:
+    """Migrate credentials from legacy inventory.json to credentials.json."""
+    CREDENTIALS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"credentials": [c.model_dump() for c in creds]}
+    CREDENTIALS_FILE.write_text(json.dumps(payload, indent=2))
+    log.info("Migrated %d credential(s) from inventory.json → credentials.json", len(creds))
 
 
 def save_inventory(inv: Inventory) -> None:
-    INVENTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
-    INVENTORY_FILE.write_text(inv.model_dump_json(indent=2))
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    # Persist credentials separately
+    cred_payload = {"credentials": [c.model_dump() for c in inv.credentials]}
+    CREDENTIALS_FILE.write_text(json.dumps(cred_payload, indent=2))
+    # Persist everything else without credentials
+    inv_dict = inv.model_dump(exclude={"credentials"})
+    INVENTORY_FILE.write_text(json.dumps(inv_dict, indent=2))
 
 
 # ─── Root ─────────────────────────────────────────────────────────────────────
@@ -187,6 +221,7 @@ async def delete_server(server_id: str):
 _current_audit: Optional[AuditRun] = None
 _current_analysis: Optional[AnalysisResult] = None
 _analysis_cancel: list[bool] = [False]
+_current_discovery: Optional[DiscoveryRun] = None
 
 
 async def _do_audit(audit_run: AuditRun, inv: Inventory) -> None:
@@ -231,6 +266,37 @@ async def _do_audit(audit_run: AuditRun, inv: Inventory) -> None:
         # Trigger AI analysis asynchronously once audit data is saved
         if audit_run.status == "done" and audit_run.results:
             asyncio.create_task(_do_analysis(audit_run.results))
+
+
+async def _do_discovery(seed_servers: list, inv: Inventory) -> None:
+    global _current_discovery
+    from datetime import datetime, timezone
+
+    def _on_wave_done(wave, results) -> None:
+        if _current_discovery:
+            # Wave already appended by run_discovery; just persist interim state
+            pass
+
+    try:
+        run = await run_discovery(
+            seed_servers=seed_servers,
+            credentials=inv.credentials,
+            on_wave_done=_on_wave_done,
+        )
+        run.finished_at = datetime.now(timezone.utc).isoformat()
+        run.status = "done"
+        _current_discovery = run
+        inv2 = load_inventory()
+        inv2.last_discovery = run
+        save_inventory(inv2)
+        log.info("Discovery complete: %d waves, %d new nodes", len(run.waves), run.total_discovered)
+    except Exception as exc:
+        log.exception("Discovery failed")
+        if _current_discovery:
+            _current_discovery.status = "error"
+            _current_discovery.error = str(exc)
+            from datetime import datetime, timezone
+            _current_discovery.finished_at = datetime.now(timezone.utc).isoformat()
 
 
 @app.post("/api/audit/run")
@@ -282,6 +348,47 @@ async def clear_audit():
     inv.last_audit = None
     save_inventory(inv)
     return {"ok": True}
+
+
+# ─── Discovery ────────────────────────────────────────────────────────────────
+
+@app.post("/api/discover")
+async def trigger_discovery(background_tasks: BackgroundTasks):
+    """Start auto-discovery from all configured servers as seeds."""
+    global _current_discovery
+    if _current_discovery and _current_discovery.status == "running":
+        return {"status": "already_running"}
+
+    inv = load_inventory()
+    if not inv.servers:
+        raise HTTPException(400, "No seed servers in inventory")
+    if not any(c.is_default for c in inv.credentials):
+        raise HTTPException(400, "No default credential configured — needed to SSH discovered nodes")
+
+    from datetime import datetime, timezone
+    _current_discovery = DiscoveryRun(started_at=datetime.now(timezone.utc).isoformat())
+    background_tasks.add_task(_do_discovery, inv.servers, inv)
+    return {"status": "started"}
+
+
+@app.get("/api/discover/status")
+async def discover_status():
+    if _current_discovery is not None:
+        return _current_discovery.model_dump(exclude={"waves"})
+    inv = load_inventory()
+    if inv.last_discovery:
+        return inv.last_discovery.model_dump(exclude={"waves"})
+    return {"status": "idle"}
+
+
+@app.get("/api/discover/results")
+async def discover_results():
+    if _current_discovery is not None:
+        return _current_discovery
+    inv = load_inventory()
+    if inv.last_discovery:
+        return inv.last_discovery
+    return DiscoveryRun(started_at="", status="idle")
 
 
 # ─── Analysis ────────────────────────────────────────────────────────────────
@@ -528,67 +635,45 @@ async def export_audit_json():
     )
 
 
-# ─── Export / Import ──────────────────────────────────────────────────────────
+# ─── Export / Import (servers only — credentials stay in credentials.json) ────
 
 @app.get("/api/export")
 async def export_config():
-    """Export servers + credential profiles without any secrets (password/key)."""
+    """Export server inventory only (no credentials, no secrets)."""
     inv = load_inventory()
     payload = {
-        "version": "1",
-        "credentials": [
-            {k: v for k, v in c.model_dump().items()
-             if k not in ("password", "private_key")}
-            for c in inv.credentials
-        ],
+        "version": "2",
         "servers": [s.model_dump() for s in inv.servers],
     }
     content = json.dumps(payload, indent=2)
     return Response(
         content=content,
         media_type="application/json",
-        headers={"Content-Disposition": "attachment; filename=arcis-swarm-config.json"},
+        headers={"Content-Disposition": "attachment; filename=arcis-swarm-servers.json"},
     )
 
 
 class ImportBody(PydanticBaseModel):
     version: str = "1"
-    credentials: list[dict] = []
+    credentials: list[dict] = []   # ignored in v2 exports; still accepted for backwards compat
     servers: list[dict] = []
     mode: str = "merge"   # "merge" | "replace"
 
 
 @app.post("/api/import")
 async def import_config(body: ImportBody):
-    """Import servers and credential profiles. Secrets are never imported."""
+    """Import server inventory. Credentials are never touched by this endpoint."""
     inv = load_inventory()
 
     if body.mode == "replace":
-        inv.credentials = []
         inv.servers = []
 
-    existing_cred_ids = {c.id for c in inv.credentials}
-    existing_srv_ids  = {s.id for s in inv.servers}
-
-    imported_creds = 0
-    imported_srvs  = 0
-
-    for raw in body.credentials:
-        # Strip secrets even if caller accidentally included them
-        raw.pop("password", None)
-        raw.pop("private_key", None)
-        if raw.get("id") and raw["id"] in existing_cred_ids:
-            # Update metadata only (not secrets)
-            idx = next(i for i, c in enumerate(inv.credentials) if c.id == raw["id"])
-            for field in ("name", "username", "port", "is_default"):
-                if field in raw:
-                    setattr(inv.credentials[idx], field, raw[field])
-        else:
-            raw.setdefault("id", str(uuid.uuid4()))
-            inv.credentials.append(Credential(**raw))
-            imported_creds += 1
+    existing_srv_ids = {s.id for s in inv.servers}
+    imported_srvs = 0
 
     for raw in body.servers:
+        # Strip any credential IDs that won't map to credentials on this instance
+        raw.pop("credential_id", None)
         if raw.get("id") and raw["id"] in existing_srv_ids:
             idx = next(i for i, s in enumerate(inv.servers) if s.id == raw["id"])
             inv.servers[idx] = Server(**raw)
@@ -600,8 +685,6 @@ async def import_config(body: ImportBody):
     save_inventory(inv)
     return {
         "ok": True,
-        "imported_credentials": imported_creds,
         "imported_servers": imported_srvs,
-        "total_credentials": len(inv.credentials),
         "total_servers": len(inv.servers),
     }

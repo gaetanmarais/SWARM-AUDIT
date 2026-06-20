@@ -1,6 +1,6 @@
-# Version: 1.5.0
-# Date:    2026-06-18
-# Notes:   Map logs field (last-24h per-role application logs) from audit JSON
+# Version: 2.0.0
+# Date:    2026-06-20
+# Notes:   Add extract_candidate_ips(), run_discovery(); map ntp/syslog/keepalived fields
 
 from __future__ import annotations
 import asyncio
@@ -11,7 +11,7 @@ from typing import AsyncIterator, Optional
 
 import asyncssh
 
-from models import AuditResult, Credential, Server
+from models import AuditResult, Credential, Server, DiscoveredServer, DiscoveryWave, DiscoveryRun
 
 log = logging.getLogger(__name__)
 
@@ -121,6 +121,9 @@ async def audit_server(
                 is_ntp_server=data.get("is_ntp_server", False),
                 is_dhcp_server=data.get("is_dhcp_server", False),
                 is_pxe_server=data.get("is_pxe_server", False),
+                ntp_client_servers=data.get("ntp_client_servers", []),
+                syslog_targets=data.get("syslog_targets", []),
+                keepalived_peers=data.get("keepalived_peers", []),
                 logs=data.get("logs", {}),
             )
 
@@ -162,3 +165,113 @@ async def run_audit(
         return r
 
     return list(await asyncio.gather(*[_task(s) for s in servers]))
+
+
+def extract_candidate_ips(
+    result: AuditResult,
+    known_ips: set[str],
+) -> list[DiscoveredServer]:
+    """Extract candidate IPs to discover from an audit result."""
+    candidates: list[DiscoveredServer] = []
+    seen: set[str] = set()
+
+    def _add(raw_ip: str, source: str, hint_role: str = "") -> None:
+        ip = raw_ip.split(":")[0].strip()
+        if not ip or ip in known_ips or ip in seen:
+            return
+        seen.add(ip)
+        candidates.append(DiscoveredServer(ip=ip, source=source, hint_role=hint_role))
+
+    for ip in result.keepalived_peers:
+        _add(ip, "keepalived_peer", "HAPROXY")
+    for be in result.haproxy_backends:
+        _add(be.ip, "haproxy_backend", "CONTENT_GATEWAY")
+    for ip in result.gw_cluster_ips:
+        _add(ip, "gw_cluster", "CASTOR")
+    for ip in result.gw_es_ips:
+        _add(ip, "gw_es", "ELASTICSEARCH")
+    for ip in result.gw_lcs_ips:
+        _add(ip, "gw_lcs", "LISTING_CACHE_SERVER")
+    for ip in result.es_seed_hosts:
+        _add(ip, "es_seed", "ELASTICSEARCH")
+    for ip in result.ntp_client_servers:
+        _add(ip, "ntp_target", "SCS")
+    for ip in result.syslog_targets:
+        _add(ip, "syslog_target", "SCS")
+    return candidates
+
+
+async def run_discovery(
+    seed_servers: list[Server],
+    credentials: list[Credential],
+    on_wave_done=None,
+    max_waves: int = 5,
+) -> DiscoveryRun:
+    """
+    Multi-wave SSH discovery starting from seed_servers.
+    Each wave audits new IPs found from previous wave results.
+    Uses the default credential for all discovered nodes.
+    """
+    from datetime import datetime, timezone
+    run = DiscoveryRun(started_at=datetime.now(timezone.utc).isoformat())
+
+    cred_map = {c.id: c for c in credentials}
+    default_cred = next((c for c in credentials if c.is_default), None)
+
+    # known_ips: all IPs we've already audited or attempted
+    known_ips: set[str] = {s.ip for s in seed_servers}
+    all_results: list[AuditResult] = []
+
+    # Wave 0: audit seeds
+    wave0 = DiscoveryWave(wave=0, candidates=[
+        DiscoveredServer(ip=s.ip, source="seed", hint_role="") for s in seed_servers
+    ])
+    seed_results = await run_audit(seed_servers, credentials)
+    wave0.reached = sum(1 for r in seed_results if r.success)
+    wave0.new_added = len(seed_results)
+    all_results.extend(seed_results)
+    run.waves.append(wave0)
+    if on_wave_done:
+        on_wave_done(wave0, seed_results)
+
+    for wave_num in range(1, max_waves + 1):
+        # Collect all candidate IPs from this wave's results
+        candidates: list[DiscoveredServer] = []
+        seen_this_wave: set[str] = set()
+        for r in (seed_results if wave_num == 1 else prev_results):
+            for cand in extract_candidate_ips(r, known_ips):
+                if cand.ip not in seen_this_wave:
+                    seen_this_wave.add(cand.ip)
+                    candidates.append(cand)
+
+        if not candidates:
+            break
+
+        # Build synthetic Server objects for each candidate
+        new_servers: list[Server] = []
+        for cand in candidates:
+            known_ips.add(cand.ip)
+            # Name: hint_role prefix + IP suffix
+            suffix = cand.ip.split(".")[-1]
+            role_prefix = cand.hint_role.lower().replace("_", "-") or "node"
+            new_servers.append(Server(
+                name=f"{role_prefix}-{suffix}",
+                ip=cand.ip,
+                credential_id=None,  # will use default
+            ))
+
+        if not default_cred:
+            log.warning("No default credential — stopping discovery at wave %d", wave_num)
+            break
+
+        wave = DiscoveryWave(wave=wave_num, candidates=candidates)
+        prev_results = await run_audit(new_servers, credentials)
+        wave.reached = sum(1 for r in prev_results if r.success)
+        wave.new_added = len(new_servers)
+        all_results.extend(prev_results)
+        run.waves.append(wave)
+        if on_wave_done:
+            on_wave_done(wave, prev_results)
+
+    run.total_discovered = len(all_results) - len(seed_servers)
+    return run

@@ -1,6 +1,6 @@
-# Version: 2.3.0
+# Version: 2.4.0
 # Date:    2026-06-20
-# Notes:   Add progress field to AnalysisResult for incremental updates
+# Notes:   Add DiscoveredServer/DiscoveryWave/DiscoveryRun; NTP/syslog/keepalived fields on AuditResult
 
 from __future__ import annotations
 from typing import Optional, Literal
@@ -159,11 +159,40 @@ class AuditResult(BaseModel):
     is_ntp_server: bool = False
     is_dhcp_server: bool = False
     is_pxe_server: bool = False
+    # Discovery: where this node points for time sync and log forwarding
+    ntp_client_servers: list[str] = []   # NTP server IPs configured on this node
+    syslog_targets: list[str] = []       # Remote syslog forwarding targets
+    keepalived_peers: list[str] = []     # VRRP unicast peers (other HA nodes)
     # Live data
     listen_ports: list[ListenPort] = []
     connections: list[NetConnection] = []
     # Application logs — last 24h, deduplicated, keyed by role name
     logs: dict[str, str] = {}
+
+
+# ─── Auto-discovery ───────────────────────────────────────────────────────────
+
+class DiscoveredServer(BaseModel):
+    ip: str
+    source: str   # keepalived_peer|haproxy_backend|gw_cluster|gw_es|gw_lcs|ntp_target|syslog_target|es_seed
+    hint_role: str = ""   # guessed role from discovery source
+
+
+class DiscoveryWave(BaseModel):
+    wave: int
+    candidates: list[DiscoveredServer] = []
+    reached: int = 0    # successfully SSH-audited
+    new_added: int = 0  # unique IPs added to results this wave
+
+
+class DiscoveryRun(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    started_at: str
+    finished_at: Optional[str] = None
+    status: Literal["running", "done", "error"] = "running"
+    waves: list[DiscoveryWave] = []
+    total_discovered: int = 0
+    error: Optional[str] = None
 
 
 # ─── Audit run ────────────────────────────────────────────────────────────────
@@ -224,4 +253,5 @@ class Inventory(BaseModel):
     servers: list[Server] = []
     last_audit: Optional[AuditRun] = None
     last_analysis: Optional[AnalysisResult] = None
+    last_discovery: Optional[DiscoveryRun] = None
     settings: InventorySettings = Field(default_factory=InventorySettings)
