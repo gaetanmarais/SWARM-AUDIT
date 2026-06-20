@@ -1,6 +1,6 @@
-# Version: 1.12.0
+# Version: 1.13.0
 # Date:    2026-06-20
-# Notes:   Split storage: credentials.json (secrets) + inventory.json (servers/audit/settings)
+# Notes:   APP_VERSION watermark in SVG; /api/discover/results adds signals; collected_at in diagram
 
 from __future__ import annotations
 import asyncio
@@ -42,7 +42,8 @@ CREDENTIALS_FILE = DATA_DIR / "credentials.json"  # credentials (secrets — nev
 FRONTEND_DIR     = _APP_ROOT / "frontend"
 DUMPS_DIR        = DATA_DIR / "dumps"
 
-app = FastAPI(title="ARCIS-SWARM", version="1.0.0")
+APP_VERSION = "2.0.0"
+app = FastAPI(title="ARCIS-SWARM", version=APP_VERSION)
 
 # Cache for Tailwind CDN script — fetched once per process lifetime
 _tailwind_cdn_cache: str | None = None
@@ -329,9 +330,27 @@ async def clear_audit():
 
 @app.get("/api/discover/results")
 async def discover_results():
-    """Return discovered servers from the last audit (is_discovered=True results)."""
+    """Return discovered servers from the last audit (is_discovered=True results) + discovery signals."""
     results = _get_audit_results()
     discovered = [r for r in results if r.is_discovered]
+    # signals: what discovery data each seed server exposed
+    signals = [
+        {
+            "ip": r.server_ip,
+            "name": r.server_name,
+            "roles": [role.role for role in r.roles],
+            "keepalived_peers": r.keepalived_peers,
+            "haproxy_backends": [{"ip": b.ip, "port": b.port, "name": b.name} for b in r.haproxy_backends],
+            "gw_cluster_ips": r.gw_cluster_ips,
+            "gw_es_ips": r.gw_es_ips,
+            "gw_lcs_ips": r.gw_lcs_ips,
+            "ntp_client_servers": r.ntp_client_servers,
+            "syslog_targets": r.syslog_targets,
+            "es_seed_hosts": r.es_seed_hosts,
+        }
+        for r in results
+        if not r.is_discovered and r.success
+    ]
     return {
         "total_discovered": len(discovered),
         "audit_status": _current_audit.status if _current_audit else "idle",
@@ -346,6 +365,7 @@ async def discover_results():
             }
             for r in discovered
         ],
+        "signals": signals,
     }
 
 
@@ -496,7 +516,14 @@ async def diagram_svg():
         if inv.last_audit:
             results = inv.last_audit.results
 
-    svg = generate_svg(results)
+    audit_ts = ""
+    if _current_audit and _current_audit.finished_at:
+        audit_ts = _current_audit.finished_at[:16].replace("T", " ") + " UTC"
+    elif not _current_audit:
+        inv2 = load_inventory()
+        if inv2.last_audit and inv2.last_audit.finished_at:
+            audit_ts = inv2.last_audit.finished_at[:16].replace("T", " ") + " UTC"
+    svg = generate_svg(results, collected_at=audit_ts, build=f"v{APP_VERSION}")
     return Response(content=svg, media_type="image/svg+xml")
 
 
@@ -549,7 +576,7 @@ async def export_report():
     safe_cluster = re.sub(r"[^a-zA-Z0-9_-]", "-", cluster_name)
     filename = f"arcis-swarm-{safe_cluster}-{date_str}.html"
 
-    svg_content = generate_svg(results)
+    svg_content = generate_svg(results, collected_at=generated_at, build=f"v{APP_VERSION}")
     html_content = generate_report_html(results, svg_content, analysis_obj, generated_at, cluster_name)
 
     return Response(

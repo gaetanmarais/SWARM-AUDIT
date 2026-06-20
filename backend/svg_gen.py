@@ -1,7 +1,7 @@
-# Version: 13.0.0
+# Version: 13.1.0
 # Date:    2026-06-20
 # Notes:   Responsive SVG (viewBox only, width=100%); layer order HA→SCS/CSN→GW→LCS→ES/FDB→STORAGE;
-#          tiles centered per role line; one role family per row
+#          tiles centered per role line; one role family per row; collected_at + build watermark
 
 from __future__ import annotations
 import html as _html_mod
@@ -607,7 +607,7 @@ def _draw_row_wires(
 
 # ─── Main SVG generator ───────────────────────────────────────────────────────
 
-def generate_svg(results: list[AuditResult]) -> str:
+def generate_svg(results: list[AuditResult], collected_at: str = "", build: str = "") -> str:
     if not results:
         return (
             '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 100" '
@@ -1136,6 +1136,19 @@ def generate_svg(results: list[AuditResult]) -> str:
             f'  <rect x="{x}" y="{y}" width="{BODY_W}" height="{NODE_H}" '
             f'fill="none" style="cursor:pointer" '
             f'onclick="svgNodeClick(event,&quot;{_esc(r.server_id)}&quot;)"/>'
+        )
+
+    # ── Watermark: collection date + build ───────────────────────────────────
+    if collected_at or build:
+        wm_parts = []
+        if collected_at:
+            wm_parts.append(f"Collected: {collected_at}")
+        if build:
+            wm_parts.append(f"ARCIS-SWARM {build}")
+        wm_text = "  |  ".join(wm_parts)
+        parts.append(
+            f'  <text x="12" y="{total_h - 8}" fill="#475569" font-size="9" '
+            f'font-family="monospace" opacity="0.7">{_esc(wm_text)}</text>'
         )
 
     # ── Legend ────────────────────────────────────────────────────────────────

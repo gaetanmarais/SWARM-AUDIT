@@ -476,42 +476,87 @@ const SOURCE_LABELS = {
 async function loadDiscovery() {
   const el = document.getElementById('discovery-list');
   if (!el) return;
+  const ROLE_COLORS = {
+    HAPROXY:'bg-red-800', CONTENT_GATEWAY:'bg-blue-800',
+    CASTOR:'bg-slate-700', ELASTICSEARCH:'bg-purple-800',
+    LISTING_CACHE_SERVER:'bg-orange-800', SCS:'bg-blue-900',
+    LISTING_CACHE:'bg-yellow-800', UNKNOWN:'bg-gray-700',
+  };
   try {
     const r = await fetch(API+'/api/discover/results');
     const data = await r.json();
     const discovered = data.discovered || [];
-    if (!discovered.length) {
-      el.innerHTML = '<p class="text-slate-500 text-sm">No servers discovered yet — run an audit first.</p>';
-      return;
+    const signals = data.signals || [];
+
+    let signalsHtml = '';
+    if (signals.length) {
+      const rows = signals.map(s => {
+        const fields = [
+          {k:'keepalived_peers',  label:'Keepalived peers'},
+          {k:'haproxy_backends',  label:'HAProxy backends'},
+          {k:'gw_cluster_ips',    label:'GW cluster IPs'},
+          {k:'gw_es_ips',         label:'GW ES IPs'},
+          {k:'gw_lcs_ips',        label:'GW LCS IPs'},
+          {k:'ntp_client_servers',label:'NTP servers'},
+          {k:'syslog_targets',    label:'Syslog targets'},
+          {k:'es_seed_hosts',     label:'ES seed hosts'},
+        ];
+        const nonEmpty = fields.filter(f => (s[f.k]||[]).length > 0);
+        const cells = nonEmpty.map(f => {
+          const vals = f.k === 'haproxy_backends'
+            ? s[f.k].map(b => b.ip+':'+b.port)
+            : s[f.k];
+          return '<div class="mb-1"><span class="text-slate-500 text-xs">'+f.label+':</span> '
+            + vals.map(v => '<span class="font-mono text-xs text-blue-300">'+esc(v)+'</span>').join(' ')
+            + '</div>';
+        }).join('');
+        const noSignal = nonEmpty.length === 0
+          ? '<span class="text-yellow-500 text-xs italic">No discovery signals found — keepalived/haproxy/NTP/syslog configs not detected on this node.</span>'
+          : '';
+        return '<div class="card rounded-xl p-3 mb-2">'
+          + '<div class="flex items-center gap-2 mb-1">'
+          + '<span class="font-mono text-sm text-slate-200">'+esc(s.ip)+'</span>'
+          + '<span class="text-xs text-slate-500">'+esc(s.name)+'</span>'
+          + '<div class="flex gap-1">'+(s.roles||[]).map(role=>'<span class="role-badge '+(ROLE_COLORS[role]||'bg-gray-700')+'">'+esc(role)+'</span>').join('')+'</div>'
+          + '</div>'
+          + (cells || noSignal)
+          + '</div>';
+      }).join('');
+      signalsHtml = '<div class="mb-4">'
+        + '<p class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">Discovery signals from audited servers</p>'
+        + rows
+        + '</div>';
     }
-    const ROLE_COLORS = {
-      HAPROXY:'bg-red-800', CONTENT_GATEWAY:'bg-blue-800',
-      CASTOR:'bg-slate-700', ELASTICSEARCH:'bg-purple-800',
-      LISTING_CACHE_SERVER:'bg-orange-800', SCS:'bg-blue-900',
-      LISTING_CACHE:'bg-yellow-800', UNKNOWN:'bg-gray-700',
-    };
-    el.innerHTML = `
-      <div class="card rounded-xl p-4 mb-3 flex items-center justify-between">
-        <span class="text-sm font-semibold text-slate-300">${discovered.length} server(s) found during last audit</span>
-        <button onclick="addAllDiscovered()" class="btn btn-primary text-xs">Add all to inventory</button>
-      </div>
-      ${discovered.map(s => `
-        <div class="card rounded-xl p-3 flex items-center gap-3 flex-wrap">
-          <span class="${s.success ? 'text-green-400' : 'text-red-400'}">${s.success ? '\u2713' : '\u2717'}</span>
-          <span class="font-mono text-sm text-slate-200">${esc(s.ip)}</span>
-          <span class="text-xs text-slate-500 bg-slate-800 px-2 py-0.5 rounded">${esc(SOURCE_LABELS[s.source]||s.source)}</span>
-          <div class="flex gap-1 flex-wrap">
-            ${(s.roles||[]).map(role => `<span class="role-badge ${ROLE_COLORS[role]||'bg-gray-700'}">${esc(role)}</span>`).join('')}
-          </div>
-          ${s.error ? `<span class="text-xs text-red-400">${esc(s.error)}</span>` : ''}
-          <button onclick="addDiscoveredToInventory('${esc(s.ip)}','${esc((s.roles||[])[0]||'')}')"
-            class="ml-auto btn btn-ghost text-xs">+ Add to inventory</button>
-        </div>`).join('')}`;
+
+    let discoveredHtml = '';
+    if (!discovered.length) {
+      if (signals.length) {
+        discoveredHtml = '<p class="text-slate-600 text-sm italic mt-2">0 new servers discovered (IPs may already be in inventory, SSH may have failed, or signals were empty).</p>';
+      } else {
+        discoveredHtml = '<p class="text-slate-500 text-sm">No servers discovered yet — run an audit first.</p>';
+      }
+    } else {
+      discoveredHtml = '<div class="card rounded-xl p-4 mb-3 flex items-center justify-between">'
+        + '<span class="text-sm font-semibold text-slate-300">'+discovered.length+' server(s) found during last audit</span>'
+        + '<button onclick="addAllDiscovered()" class="btn btn-primary text-xs">Add all to inventory</button>'
+        + '</div>'
+        + discovered.map(s =>
+          '<div class="card rounded-xl p-3 flex items-center gap-3 flex-wrap">'
+          + '<span class="'+(s.success?'text-green-400':'text-red-400')+'">'+(s.success?'OK':'ERR')+'</span>'
+          + '<span class="font-mono text-sm text-slate-200">'+esc(s.ip)+'</span>'
+          + '<span class="text-xs text-slate-500 bg-slate-800 px-2 py-0.5 rounded">'+esc(SOURCE_LABELS[s.source]||s.source)+'</span>'
+          + '<div class="flex gap-1 flex-wrap">'+(s.roles||[]).map(role=>'<span class="role-badge '+(ROLE_COLORS[role]||'bg-gray-700')+'">'+esc(role)+'</span>').join('')+'</div>'
+          + (s.error ? '<span class="text-xs text-red-400">'+esc(s.error)+'</span>' : '')
+          + '<button onclick="addDiscoveredToInventory(\''+esc(s.ip)+'\',\''+(esc((s.roles||[])[0]||''))+'\')" class="ml-auto btn btn-ghost text-xs">+ Add to inventory</button>'
+          + '</div>'
+        ).join('');
+    }
+
+    el.innerHTML = signalsHtml + discoveredHtml;
   } catch(e) {
     el.innerHTML = '<p class="text-red-400 text-sm">Failed to load discovery results.</p>';
   }
 }
-
 async function addDiscoveredToInventory(ip, hintRole) {
   const suffix = ip.split('.').pop();
   const rolePrefix = (hintRole||'node').toLowerCase().replace(/_/g,'-');
