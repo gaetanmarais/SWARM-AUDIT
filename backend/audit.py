@@ -1,6 +1,6 @@
-# Version: 2.4.0
+# Version: 2.5.0
 # Date:    2026-06-20
-# Notes:   Jump-host support for private-network targets (GW→Storage/ES/LCS via SSH tunnel)
+# Notes:   Use FQDN as server_name for discovered nodes after successful SSH audit
 
 from __future__ import annotations
 import asyncio
@@ -403,6 +403,9 @@ async def run_audit_with_discovery(
             )
             r.is_discovered = True
             r.discovered_source = source_map[cand.ip].source
+            # Use actual FQDN as display name for discovered nodes when available
+            if r.success and r.hostname:
+                r.server_name = r.hostname
             if r.success:
                 roles = [rd.role for rd in r.roles]
                 _dlog(f"  {cand.ip}: OK roles={roles} ntp={r.ntp_client_servers} syslog={r.syslog_targets} "

@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <!--
-  Version: 1.15.0
+  Version: 1.16.0
   Date:    2026-06-20
-  Notes:   Discovery integrated in Run Audit; Discovery tab = read-only log of found nodes
+  Notes:   showTab loads results/analysis on switch; analysis poll retries idle; init loads analysis
 -->
 <html lang="en">
 <head>
@@ -657,6 +657,7 @@ function pollAuditStatus() {
       const btn = document.getElementById('audit-btn');
       btn.disabled = false;
       btn.innerHTML = 'Run Audit';
+      loadResults();   // show partial results even on error
     }
   }, 2000);
 }
@@ -2855,9 +2856,11 @@ function showTab(name) {
     document.getElementById('panel-' + t)?.classList.toggle('hidden', t !== name);
     document.getElementById('tab-' + t)?.classList.toggle('active', t === name);
   });
-  if (name === 'discovery') loadDiscovery();
-  if (name === 'servers')   renderServers();
-  if (name === 'credentials') renderCredentials();
+  if (name === 'discovery')    loadDiscovery();
+  if (name === 'results')      loadResults();
+  if (name === 'analysis')     loadAnalysis();
+  if (name === 'servers')      renderServers();
+  if (name === 'credentials')  renderCredentials();
 }
 
 // ─── Theme toggle ─────────────────────────────────────────────────────────────
@@ -2871,6 +2874,7 @@ function toggleTheme() {
 // ─── Analysis ─────────────────────────────────────────────────────────────────
 
 let analysisPollTimer = null;
+let _analysisIdleCount = 0;  // retries on "idle" before giving up
 const SEV_CLASS = {
   CRITICAL: 'bg-red-900 text-red-300',
   WARNING:  'bg-yellow-900 text-yellow-300',
@@ -2880,6 +2884,7 @@ const SEV_CLASS = {
 const SEV_ORDER = {CRITICAL:0, WARNING:1, INFO:2, OK:3};
 
 function pollAnalysisStatus() {
+  _analysisIdleCount = 0;
   clearInterval(analysisPollTimer);
   analysisPollTimer = setInterval(async () => {
     try {
@@ -2906,10 +2911,14 @@ function pollAnalysisStatus() {
         clearInterval(analysisPollTimer);
         loadAnalysis();
       } else {
-        // idle — analysis never ran or no credentials
+        // idle — _do_analysis may not have started yet; retry up to 5× before stopping
         badge.classList.add('hidden');
-        clearInterval(analysisPollTimer);
-        if (d.error) loadAnalysis();  // show the "skipped" reason
+        _analysisIdleCount++;
+        if (_analysisIdleCount >= 5) {
+          clearInterval(analysisPollTimer);
+          loadAnalysis();  // show whatever state we have (error, previous result, idle msg)
+        }
+        // else keep polling — task may just not have been scheduled yet
       }
     } catch(e) { /* network blip, keep polling */ }
   }, 3000);
@@ -3159,13 +3168,15 @@ async function init() {
   const r = await fetch(API+'/api/audit/status');
   const d = await r.json();
   if (d.status === 'running') pollAuditStatus();
-  // Check if analysis is already running or done
+  // Check if analysis is already running or done, and render whatever state exists
   try {
     const ra = await fetch(API+'/api/analysis/status');
     const da = await ra.json();
     if (da.status === 'running') {
       document.getElementById('analysis-badge').classList.remove('hidden');
       pollAnalysisStatus();
+    } else {
+      loadAnalysis();  // render previous results, error message, or idle placeholder
     }
   } catch(e) {}
   loadSettingsValues();
