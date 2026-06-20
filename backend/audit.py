@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import uuid
 from pathlib import Path
 from typing import AsyncIterator, Optional
 
@@ -16,7 +17,6 @@ from models import AuditResult, Credential, Server, DiscoveredServer, DiscoveryW
 log = logging.getLogger(__name__)
 
 SCRIPT_PATH = Path(__file__).parent.parent / "scripts" / "audit.sh"
-REMOTE_SCRIPT = "/tmp/_arcis_audit.sh"
 SSH_CONNECT_TIMEOUT = 20   # seconds — TCP connect + SSH handshake + auth
 SCRIPT_TIMEOUT     = 600   # seconds — script execution (GW/SCS can be slow)
 
@@ -69,17 +69,24 @@ async def audit_server(
 
         async with conn_ctx as conn:
             script_content = SCRIPT_PATH.read_bytes()
+            # Unique name per session — avoids collision if the same host is audited concurrently
+            remote_script = f"/tmp/_arcis_audit_{uuid.uuid4().hex[:8]}.sh"
 
             async with conn.start_sftp_client() as sftp:
-                async with sftp.open(REMOTE_SCRIPT, "wb") as f:
+                async with sftp.open(remote_script, "wb") as f:
                     await f.write(script_content)
-            await conn.run(f"chmod +x {REMOTE_SCRIPT}", check=True)
+            log.info("TMP WRITE  %s:%s (%d bytes)", server.ip, remote_script, len(script_content))
 
-            result = await asyncio.wait_for(
-                conn.run(f"bash {REMOTE_SCRIPT}", check=False),
-                timeout=SCRIPT_TIMEOUT,
-            )
-            await conn.run(f"rm -f {REMOTE_SCRIPT}", check=False)
+            await conn.run(f"chmod +x {remote_script}", check=True)
+
+            try:
+                result = await asyncio.wait_for(
+                    conn.run(f"bash {remote_script}", check=False),
+                    timeout=SCRIPT_TIMEOUT,
+                )
+            finally:
+                await conn.run(f"rm -f {remote_script}", check=False)
+                log.info("TMP DELETE %s:%s", server.ip, remote_script)
 
             if result.returncode != 0:
                 base.error = f"Script exit {result.returncode}: {result.stderr[:500]}"
