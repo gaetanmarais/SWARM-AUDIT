@@ -30,6 +30,7 @@ from audit import run_audit
 from svg_gen import generate_svg
 from health_report import generate_health_report_html
 from analysis import run_analysis
+from report_gen import generate_report_html
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -451,7 +452,7 @@ async def get_health_report():
 
 @app.get("/api/export-report")
 async def export_report():
-    """ZIP containing a self-contained index.html that mirrors the live SPA (read-only)."""
+    """Self-contained 3-tab HTML report (Diagram / Audit / Analysis) — no backend required."""
     results: list[AuditResult] = []
     if _current_audit and _current_audit.results:
         results = _current_audit.results
@@ -460,27 +461,6 @@ async def export_report():
         if inv.last_audit:
             results = inv.last_audit.results
 
-    svg_content = generate_svg(results)
-
-    # Serialize results without credentials/server-management sensitive fields
-    results_json = json.dumps(
-        [r.model_dump() for r in results],
-        ensure_ascii=False, default=str,
-    )
-
-    # Read the SPA source
-    spa_path = Path(__file__).parent.parent / "frontend" / "index.html"
-    spa_html = spa_path.read_text(encoding="utf-8")
-
-    # Replace external Tailwind CDN tag with inlined script for offline use
-    tailwind_js = await asyncio.get_event_loop().run_in_executor(None, _fetch_tailwind_inline)
-    if tailwind_js:
-        spa_html = spa_html.replace(
-            '<script src="https://cdn.tailwindcss.com"></script>',
-            f'<script>{tailwind_js}</script>',
-        )
-
-    # Embed analysis results if available
     analysis_obj: Optional[AnalysisResult] = None
     if _current_analysis and _current_analysis.status == "done":
         analysis_obj = _current_analysis
@@ -488,85 +468,13 @@ async def export_report():
         inv2 = load_inventory()
         if inv2.last_analysis and inv2.last_analysis.status == "done":
             analysis_obj = inv2.last_analysis
-    analysis_json = json.dumps(
-        analysis_obj.model_dump() if analysis_obj else {"status": "idle", "modules": [], "cross_correlations": []},
-        ensure_ascii=False, default=str,
-    )
 
-    # Build the fetch-interception + embedded-data script injected just before init()
-    # This makes the exported HTML fully standalone: no API calls needed.
-    inject_js = f"""
-// ── STATIC EXPORT — read-only, no backend required ───────────────────────────
-const _EXPORT_DATA = {{
-  results:  {results_json},
-  svg:      {json.dumps(svg_content)},
-  analysis: {analysis_json},
-}};
-(function () {{
-  const _realFetch = window.fetch.bind(window);
-  window.fetch = function (url, opts) {{
-    const method = (opts && opts.method || 'GET').toUpperCase();
-    const u = typeof url === 'string' ? url : url.toString();
-    // Block all write operations silently
-    if (method !== 'GET') {{
-      return Promise.resolve({{
-        ok: false, status: 403,
-        json: () => Promise.resolve({{ error: 'read-only export' }}),
-        text: () => Promise.resolve(''),
-      }});
-    }}
-    if (u.includes('/api/audit/results'))
-      return Promise.resolve({{ ok: true, json: () => Promise.resolve(_EXPORT_DATA.results) }});
-    if (u.includes('/api/diagram/svg'))
-      return Promise.resolve({{ ok: true, text: () => Promise.resolve(_EXPORT_DATA.svg) }});
-    if (u.includes('/api/credentials'))
-      return Promise.resolve({{ ok: true, json: () => Promise.resolve([]) }});
-    if (u.includes('/api/servers'))
-      return Promise.resolve({{ ok: true, json: () => Promise.resolve([]) }});
-    if (u.includes('/api/audit/status'))
-      return Promise.resolve({{ ok: true, json: () => Promise.resolve({{ status: 'idle' }}) }});
-    if (u.includes('/api/analysis/results'))
-      return Promise.resolve({{ ok: true, json: () => Promise.resolve(_EXPORT_DATA.analysis) }});
-    if (u.includes('/api/analysis/status'))
-      return Promise.resolve({{ ok: true, json: () => Promise.resolve({{ status: _EXPORT_DATA.analysis.status }}) }});
-    if (u.includes('/api/settings'))
-      return Promise.resolve({{ ok: true, json: () => Promise.resolve({{ mcp_hub_token: '', has_anthropic_key: false }}) }});
-    return _realFetch(url, opts);
-  }};
-
-  // After DOM ready: hide all write-only UI elements
-  document.addEventListener('DOMContentLoaded', function () {{
-    // Hide Run Audit button, Add Credential/Server forms, import/clear buttons
-    const hideSelectors = [
-      '#run-audit-btn', '#add-credential-form', '#add-server-form',
-      '#clear-audit-btn', '#import-btn',
-    ];
-    hideSelectors.forEach(function (sel) {{
-      const el = document.querySelector(sel);
-      if (el) el.style.display = 'none';
-    }});
-    // Read-only banner
-    const banner = document.createElement('div');
-    banner.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#1e3a5f;color:#93c5fd;' +
-      'font-size:11px;text-align:center;padding:3px 0;z-index:9999;letter-spacing:.05em;' +
-      'border-bottom:1px solid #2563eb;';
-    banner.textContent = 'ARCIS-SWARM — Rapport statique (lecture seule)';
-    document.body.prepend(banner);
-  }});
-}})();
-// ─────────────────────────────────────────────────────────────────────────────
-"""
-
-    # Inject just before the closing </script></body></html>
-    marker = "init();\n</script>"
-    if marker in spa_html:
-        exported_html = spa_html.replace(marker, inject_js + "\ninit();\n</script>")
-    else:
-        # Fallback: inject before </body>
-        exported_html = spa_html.replace("</body>", f"<script>{inject_js}</script></body>")
+    svg_content = generate_svg(results)
+    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    html_content = generate_report_html(results, svg_content, analysis_obj, generated_at)
 
     return Response(
-        content=exported_html.encode("utf-8"),
+        content=html_content.encode("utf-8"),
         media_type="text/html; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="arcis-swarm-report.html"'},
     )
