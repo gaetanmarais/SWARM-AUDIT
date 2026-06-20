@@ -1,6 +1,6 @@
-# Version: 2.1.0
+# Version: 2.2.0
 # Date:    2026-06-20
-# Notes:   Add run_audit_with_discovery() — inline multi-wave discovery during audit
+# Notes:   Discovery waves try default cred first, then all others on SSH failure
 
 from __future__ import annotations
 import asyncio
@@ -138,6 +138,29 @@ async def audit_server(
     return base
 
 
+async def audit_server_with_fallback(
+    server: Server,
+    ordered_creds: list[Credential],
+) -> AuditResult:
+    """Try credentials in order; return the first successful result or the last failure."""
+    last: Optional[AuditResult] = None
+    for cred in ordered_creds:
+        r = await audit_server(server, cred)
+        if r.success:
+            return r
+        # Only retry on auth/connection failure, not on script errors
+        last = r
+        if r.error and not any(
+            kw in (r.error or "") for kw in ("SSH error", "Permission denied", "Authentication failed", "No credential")
+        ):
+            # Script ran but returned an error — don't retry with another cred
+            return r
+    return last or AuditResult(
+        server_id=server.id, server_name=server.name, server_ip=server.ip,
+        success=False, error="No credential available",
+    )
+
+
 async def run_audit(
     servers: list[Server],
     credentials: list[Credential],
@@ -178,7 +201,7 @@ async def run_audit_with_discovery(
     their configs (keepalived peers, HAProxy backends, gateway cluster/ES/LCS IPs,
     NTP targets, syslog targets).  Repeats until no new IPs or max_waves reached.
     Discovered nodes get is_discovered=True and discovered_source set.
-    Uses the default credential for all discovered nodes.
+    For each discovered node, tries default credential first, then all others on failure.
     """
     default_cred = next((c for c in credentials if c.is_default), None)
     known_ips: set[str] = {s.ip for s in seed_servers}
@@ -191,6 +214,9 @@ async def run_audit_with_discovery(
     if not default_cred:
         log.info("No default credential — skipping discovery waves")
         return all_results
+
+    # Ordered fallback list: default first, then all others
+    fallback_creds = [default_cred] + [c for c in credentials if not c.is_default]
 
     for wave in range(1, max_waves + 1):
         candidates: list[DiscoveredServer] = []
@@ -211,21 +237,18 @@ async def run_audit_with_discovery(
         log.info("Discovery wave %d: %d new IPs to probe", wave, len(candidates))
         source_map = {c.ip: c for c in candidates}
 
-        disc_servers: list[Server] = []
-        for cand in candidates:
+        async def _disc_task(cand: DiscoveredServer) -> AuditResult:
             suffix = cand.ip.split(".")[-1]
             role_prefix = cand.hint_role.lower().replace("_", "-") or "node"
-            disc_servers.append(Server(
-                name=f"{role_prefix}-{suffix}",
-                ip=cand.ip,
-                credential_id=None,
-            ))
-
-        wave_results = await run_audit(disc_servers, [default_cred], on_result=on_result)
-        for r in wave_results:
+            srv = Server(name=f"{role_prefix}-{suffix}", ip=cand.ip, credential_id=None)
+            r = await audit_server_with_fallback(srv, fallback_creds)
             r.is_discovered = True
-            if r.server_ip in source_map:
-                r.discovered_source = source_map[r.server_ip].source
+            r.discovered_source = source_map[cand.ip].source
+            if on_result:
+                on_result(r)
+            return r
+
+        wave_results = list(await asyncio.gather(*[_disc_task(c) for c in candidates]))
         all_results.extend(wave_results)
 
     return all_results
