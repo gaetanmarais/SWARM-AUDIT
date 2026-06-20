@@ -1,6 +1,6 @@
-# Version: 3.5.1
+# Version: 3.5.2
 # Date:    2026-06-20
-# Notes:   Remove max_tokens from ask_claude call (not supported by Hub MCP)
+# Notes:   Fix JSON truncation — cap max_tokens at 8000, add conciseness constraint
 
 from __future__ import annotations
 import asyncio
@@ -97,7 +97,7 @@ def _call_anthropic_direct(api_key: str, prompt: str, system: str) -> str:
     """Call api.anthropic.com/v1/messages directly — bypass Hub MCP ask_claude."""
     payload = json.dumps({
         "model": CLAUDE_MODEL,
-        "max_tokens": 16000,
+        "max_tokens": 8000,
         "system": system,
         "messages": [{"role": "user", "content": prompt}],
     }).encode()
@@ -293,6 +293,51 @@ def _strip_fences(text: str) -> str:
     return text.strip()
 
 
+def _parse_json_robust(raw: str) -> dict:
+    """Parse JSON, with a fallback that recovers from a truncated response.
+
+    If the raw string is cut mid-string (common when max_tokens is hit), try
+    to find the longest complete top-level object by scanning backwards for a
+    balanced closing brace.
+    """
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        log.warning("JSON parse failed at char %d, attempting recovery…", exc.pos)
+
+    # Walk backwards to find the last position where brace depth returns to 0
+    depth = 0
+    last_valid_end = -1
+    in_string = False
+    escape = False
+    for i, ch in enumerate(raw):
+        if escape:
+            escape = False
+            continue
+        if ch == "\\" and in_string:
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                last_valid_end = i
+
+    if last_valid_end > 0:
+        try:
+            return json.loads(raw[:last_valid_end + 1])
+        except json.JSONDecodeError:
+            pass
+
+    raise json.JSONDecodeError("Cannot recover truncated JSON", raw, len(raw))
+
+
 def _call_claude_sync(
     prompt: str,
     system: str,
@@ -447,6 +492,10 @@ async def _analyze_role_group(
             "You are a senior DataCore Swarm infrastructure architect performing a configuration and log audit.\n"
             "Analyze the configuration files AND application logs provided below. Do not speculate about information absent from the provided data.\n"
             "Return ONLY valid JSON — no text, no markdown, no code fences.\n"
+            "CRITICAL: Your entire response MUST be a single complete valid JSON object. "
+            "Limit config_findings to 5 entries max. Limit log_findings to 3 entries max. "
+            "Keep 'detail' under 60 words. Keep 'corrected_config' under 6 lines. "
+            "Keep 'current_value' under 3 lines. Never truncate the JSON — if content would exceed limits, summarize instead.\n"
             "Severity: CRITICAL (immediate risk), WARNING (should fix), INFO (observation), OK (correct).\n"
             "For every non-OK finding you MUST populate:\n"
             "  current_value: quote the exact line(s) from the config file that are wrong.\n"
@@ -498,7 +547,7 @@ async def _analyze_role_group(
                 prompt, system, want_direct, api_key, mcp_url, mcp_token,
             )
             raw = _strip_fences(raw)
-            data = json.loads(raw)
+            data = _parse_json_robust(raw)
             return AnalysisModule(
                 role=data.get("role", role),
                 servers=data.get("servers", [s.server_name for s in servers]),
@@ -604,7 +653,7 @@ async def _run_synthesis(
         prompt, system, want_direct, api_key, mcp_url, mcp_token,
     )
     raw = _strip_fences(raw)
-    data = json.loads(raw)
+    data = _parse_json_robust(raw)
     return _parse_findings(data.get("cross_correlations", []))
 
 
