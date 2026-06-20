@@ -1,6 +1,6 @@
-# Version: 2.0.0
+# Version: 2.1.0
 # Date:    2026-06-20
-# Notes:   Add extract_candidate_ips(), run_discovery(); map ntp/syslog/keepalived fields
+# Notes:   Add run_audit_with_discovery() — inline multi-wave discovery during audit
 
 from __future__ import annotations
 import asyncio
@@ -165,6 +165,70 @@ async def run_audit(
         return r
 
     return list(await asyncio.gather(*[_task(s) for s in servers]))
+
+
+async def run_audit_with_discovery(
+    seed_servers: list[Server],
+    credentials: list[Credential],
+    on_result=None,
+    max_waves: int = 4,
+) -> list[AuditResult]:
+    """
+    Multi-wave audit: audit seeds first, then SSH into each IP discovered from
+    their configs (keepalived peers, HAProxy backends, gateway cluster/ES/LCS IPs,
+    NTP targets, syslog targets).  Repeats until no new IPs or max_waves reached.
+    Discovered nodes get is_discovered=True and discovered_source set.
+    Uses the default credential for all discovered nodes.
+    """
+    default_cred = next((c for c in credentials if c.is_default), None)
+    known_ips: set[str] = {s.ip for s in seed_servers}
+    all_results: list[AuditResult] = []
+
+    # Wave 0 — audit configured seed servers
+    wave_results = await run_audit(seed_servers, credentials, on_result=on_result)
+    all_results.extend(wave_results)
+
+    if not default_cred:
+        log.info("No default credential — skipping discovery waves")
+        return all_results
+
+    for wave in range(1, max_waves + 1):
+        candidates: list[DiscoveredServer] = []
+        seen: set[str] = set()
+        for r in wave_results:
+            if not r.success:
+                continue
+            for cand in extract_candidate_ips(r, known_ips):
+                if cand.ip not in seen:
+                    seen.add(cand.ip)
+                    known_ips.add(cand.ip)
+                    candidates.append(cand)
+
+        if not candidates:
+            log.info("Discovery wave %d: no new candidates — stopping", wave)
+            break
+
+        log.info("Discovery wave %d: %d new IPs to probe", wave, len(candidates))
+        source_map = {c.ip: c for c in candidates}
+
+        disc_servers: list[Server] = []
+        for cand in candidates:
+            suffix = cand.ip.split(".")[-1]
+            role_prefix = cand.hint_role.lower().replace("_", "-") or "node"
+            disc_servers.append(Server(
+                name=f"{role_prefix}-{suffix}",
+                ip=cand.ip,
+                credential_id=None,
+            ))
+
+        wave_results = await run_audit(disc_servers, [default_cred], on_result=on_result)
+        for r in wave_results:
+            r.is_discovered = True
+            if r.server_ip in source_map:
+                r.discovered_source = source_map[r.server_ip].source
+        all_results.extend(wave_results)
+
+    return all_results
 
 
 def extract_candidate_ips(

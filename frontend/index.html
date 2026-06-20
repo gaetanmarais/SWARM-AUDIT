@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <!--
-  Version: 1.14.0
+  Version: 1.15.0
   Date:    2026-06-20
-  Notes:   Add Discovery tab with multi-wave auto-discover UI, addAllDiscovered
+  Notes:   Discovery integrated in Run Audit; Discovery tab = read-only log of found nodes
 -->
 <html lang="en">
 <head>
@@ -147,14 +147,6 @@
       </svg>
       Clear
     </button>
-    <button onclick="triggerDiscovery()" id="discover-btn"
-      class="btn btn-ghost flex items-center gap-2 text-xs">
-      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-          d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-      </svg>
-      Auto-discover
-    </button>
     <button onclick="triggerAudit()" id="audit-btn"
       class="btn btn-primary flex items-center gap-2">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -212,15 +204,12 @@
 
   <!-- ── DISCOVERY TAB ── -->
   <div id="panel-discovery" class="hidden">
-    <div class="flex items-center justify-between mb-4">
-      <div>
-        <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider">Auto-Discovery</h2>
-        <p class="text-xs text-slate-500 mt-0.5">Crawl topology from seeds via keepalived / HAProxy / gateway / NTP / syslog</p>
-      </div>
-      <div id="discovery-status-badge" class="hidden text-xs px-3 py-1 rounded-full bg-slate-800 text-slate-400"></div>
+    <div class="mb-4">
+      <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider">Discovery</h2>
+      <p class="text-xs text-slate-500 mt-0.5">Servers found automatically during the last audit via keepalived / HAProxy backends / gateway config / NTP / syslog</p>
     </div>
-    <div id="discovery-waves" class="space-y-4">
-      <p class="text-slate-500 text-sm">Click <b>Auto-discover</b> to start topology crawl from your seed servers.</p>
+    <div id="discovery-list" class="space-y-3">
+      <p class="text-slate-500 text-sm">Run an audit — discovery happens automatically.</p>
     </div>
   </div>
 
@@ -473,142 +462,54 @@ const API = '';
 let credentials = [];
 let servers = [];
 let auditPollTimer = null;
-let discoverPollTimer = null;
-
-// ─── Tab navigation ───────────────────────────────────────────────────────────
-function showTab(name) {
-  ['diagram','results','analysis','discovery','servers','credentials'].forEach(t => {
-    document.getElementById('panel-'+t).classList.toggle('hidden', t !== name);
-    document.getElementById('tab-'+t).classList.toggle('active', t === name);
-  });
-  if (name === 'servers')     renderServers();
-  if (name === 'credentials') { renderCredentials(); loadSettingsValues(); }
-  if (name === 'diagram')     loadDiagram();
-  if (name === 'results')     loadResults();
-  if (name === 'analysis')    loadAnalysis();
-  if (name === 'discovery')   loadDiscovery();
-}
-
-async function triggerDiscovery() {
-  const btn = document.getElementById('discover-btn');
-  btn.disabled = true;
-  btn.innerHTML = '<svg class="w-4 h-4 spinner" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg> Discovering...';
-  try {
-    const r = await fetch(API+'/api/discover', {method:'POST'});
-    const d = await r.json();
-    if (d.status === 'started' || d.status === 'already_running') {
-      showTab('discovery');
-      pollDiscoveryStatus();
-    } else if (r.status === 400) {
-      alert(d.detail || 'Cannot start discovery: ' + JSON.stringify(d));
-      btn.disabled = false;
-      btn.innerHTML = 'Auto-discover';
-    }
-  } catch(e) {
-    alert('Failed to start discovery: '+e);
-    btn.disabled = false;
-    btn.innerHTML = 'Auto-discover';
-  }
-}
-
-function pollDiscoveryStatus() {
-  clearInterval(discoverPollTimer);
-  const badge = document.getElementById('discovery-status-badge');
-  discoverPollTimer = setInterval(async () => {
-    const r = await fetch(API+'/api/discover/status');
-    const d = await r.json();
-    if (badge) {
-      badge.classList.remove('hidden');
-      if (d.status === 'running') {
-        badge.textContent = 'Discovering…';
-        badge.className = 'text-xs px-3 py-1 rounded-full bg-blue-900 text-blue-300 pulse';
-      } else if (d.status === 'done') {
-        badge.textContent = `Done — ${d.total_discovered||0} new nodes`;
-        badge.className = 'text-xs px-3 py-1 rounded-full bg-green-900 text-green-300';
-        clearInterval(discoverPollTimer);
-        const btn = document.getElementById('discover-btn');
-        if (btn) { btn.disabled = false; btn.innerHTML = 'Auto-discover'; }
-      } else if (d.status === 'error') {
-        badge.textContent = 'Discovery error';
-        badge.className = 'text-xs px-3 py-1 rounded-full bg-red-900 text-red-300';
-        clearInterval(discoverPollTimer);
-        const btn = document.getElementById('discover-btn');
-        if (btn) { btn.disabled = false; btn.innerHTML = 'Auto-discover'; }
-      }
-    }
-    if (d.status !== 'running') loadDiscovery();
-  }, 2000);
-}
+const SOURCE_LABELS = {
+  keepalived_peer: 'keepalived peer',
+  haproxy_backend: 'HAProxy backend',
+  gw_cluster: 'GW → cluster',
+  gw_es: 'GW → Elasticsearch',
+  gw_lcs: 'GW → LCS',
+  ntp_target: 'NTP server',
+  syslog_target: 'Syslog target',
+  es_seed: 'ES seed host',
+};
 
 async function loadDiscovery() {
-  const r = await fetch(API+'/api/discover/results');
-  const run = await r.json();
-  const el = document.getElementById('discovery-waves');
+  const el = document.getElementById('discovery-list');
   if (!el) return;
-  if (!run || !run.waves || !run.waves.length) {
-    el.innerHTML = '<p class="text-slate-500 text-sm">No discovery run yet. Click <b>Auto-discover</b> to start.</p>';
-    return;
-  }
-
-  // Collect all unique discovered servers across all waves (exclude wave 0 seeds)
-  const allFound = [];
-  const seenIps = new Set();
-  run.waves.forEach((w, wi) => {
-    (w.candidates || []).forEach(c => {
-      if (wi === 0) return; // wave 0 = seeds, not discoveries
-      if (!seenIps.has(c.ip)) {
-        seenIps.add(c.ip);
-        allFound.push({...c, wave: w.wave});
-      }
-    });
-  });
-
-  const SOURCE_LABELS = {
-    keepalived_peer: 'keepalived peer',
-    haproxy_backend: 'HAProxy backend',
-    gw_cluster: 'GW → cluster',
-    gw_es: 'GW → Elasticsearch',
-    gw_lcs: 'GW → LCS',
-    ntp_target: 'NTP server',
-    syslog_target: 'Syslog target',
-    es_seed: 'ES seed host',
-    seed: 'seed',
-  };
-  const ROLE_COLORS = {
-    HAPROXY:'bg-red-800', CONTENT_GATEWAY:'bg-blue-800',
-    CASTOR:'bg-slate-700', ELASTICSEARCH:'bg-purple-800',
-    LISTING_CACHE_SERVER:'bg-orange-800', SCS:'bg-blue-900',
-  };
-
-  const wavesHtml = run.waves.map(w => {
-    const cands = (w.candidates || []).filter(c => w.wave > 0 || c.source !== 'seed');
-    if (!cands.length && w.wave === 0) return ''; // hide empty seed wave
-    return `<div class="card rounded-xl p-4">
-      <div class="flex items-center gap-3 mb-3">
-        <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Wave ${w.wave}</span>
-        <span class="text-xs text-slate-500">${w.candidates?.length||0} candidates &bull; ${w.reached} reached &bull; ${w.new_added} added</span>
-      </div>
-      ${cands.length ? `<div class="flex flex-wrap gap-2">
-        ${cands.map(c => `<div class="flex items-center gap-2 bg-slate-800 rounded-lg px-3 py-1.5 text-xs">
-          <span class="font-mono text-slate-200">${esc(c.ip)}</span>
-          <span class="text-slate-500">${esc(SOURCE_LABELS[c.source]||c.source)}</span>
-          ${c.hint_role ? `<span class="role-badge ${ROLE_COLORS[c.hint_role]||'bg-gray-700'}">${esc(c.hint_role)}</span>` : ''}
-          <button onclick="addDiscoveredToInventory('${esc(c.ip)}','${esc(c.hint_role)}')"
-            class="text-blue-400 hover:text-blue-200 font-medium ml-1" title="Add to inventory">+</button>
-        </div>`).join('')}
-      </div>` : '<p class="text-slate-600 text-xs">No candidates this wave.</p>'}
-    </div>`;
-  }).filter(Boolean).join('');
-
-  const summaryHtml = allFound.length ? `
-    <div class="card rounded-xl p-4">
-      <div class="flex items-center justify-between mb-3">
-        <span class="text-sm font-semibold text-slate-300">${allFound.length} servers discovered</span>
+  try {
+    const r = await fetch(API+'/api/discover/results');
+    const data = await r.json();
+    const discovered = data.discovered || [];
+    if (!discovered.length) {
+      el.innerHTML = '<p class="text-slate-500 text-sm">No servers discovered yet — run an audit first.</p>';
+      return;
+    }
+    const ROLE_COLORS = {
+      HAPROXY:'bg-red-800', CONTENT_GATEWAY:'bg-blue-800',
+      CASTOR:'bg-slate-700', ELASTICSEARCH:'bg-purple-800',
+      LISTING_CACHE_SERVER:'bg-orange-800', SCS:'bg-blue-900',
+      LISTING_CACHE:'bg-yellow-800', UNKNOWN:'bg-gray-700',
+    };
+    el.innerHTML = `
+      <div class="card rounded-xl p-4 mb-3 flex items-center justify-between">
+        <span class="text-sm font-semibold text-slate-300">${discovered.length} server(s) found during last audit</span>
         <button onclick="addAllDiscovered()" class="btn btn-primary text-xs">Add all to inventory</button>
       </div>
-    </div>` : '';
-
-  el.innerHTML = summaryHtml + wavesHtml;
+      ${discovered.map(s => `
+        <div class="card rounded-xl p-3 flex items-center gap-3 flex-wrap">
+          <span class="${s.success ? 'text-green-400' : 'text-red-400'}">${s.success ? '\u2713' : '\u2717'}</span>
+          <span class="font-mono text-sm text-slate-200">${esc(s.ip)}</span>
+          <span class="text-xs text-slate-500 bg-slate-800 px-2 py-0.5 rounded">${esc(SOURCE_LABELS[s.source]||s.source)}</span>
+          <div class="flex gap-1 flex-wrap">
+            ${(s.roles||[]).map(role => `<span class="role-badge ${ROLE_COLORS[role]||'bg-gray-700'}">${esc(role)}</span>`).join('')}
+          </div>
+          ${s.error ? `<span class="text-xs text-red-400">${esc(s.error)}</span>` : ''}
+          <button onclick="addDiscoveredToInventory('${esc(s.ip)}','${esc((s.roles||[])[0]||'')}')"
+            class="ml-auto btn btn-ghost text-xs">+ Add to inventory</button>
+        </div>`).join('')}`;
+  } catch(e) {
+    el.innerHTML = '<p class="text-red-400 text-sm">Failed to load discovery results.</p>';
+  }
 }
 
 async function addDiscoveredToInventory(ip, hintRole) {
@@ -622,29 +523,25 @@ async function addDiscoveredToInventory(ip, hintRole) {
     body:JSON.stringify({name, ip, credential_id: null}),
   });
   await fetchServers();
-  alert(`${ip} added as "${name}".`);
 }
 
 async function addAllDiscovered() {
   const r = await fetch(API+'/api/discover/results');
-  const run = await r.json();
-  if (!run || !run.waves) return;
-  const seenIps = new Set((await (await fetch(API+'/api/servers')).json()).map(s => s.ip));
+  const data = await r.json();
+  const existingSrvs = await (await fetch(API+'/api/servers')).json();
+  const seenIps = new Set(existingSrvs.map(s => s.ip));
   let count = 0;
-  for (const w of run.waves) {
-    if (w.wave === 0) continue;
-    for (const c of (w.candidates||[])) {
-      if (seenIps.has(c.ip)) continue;
-      seenIps.add(c.ip);
-      const suffix = c.ip.split('.').pop();
-      const rolePrefix = (c.hint_role||'node').toLowerCase().replace(/_/g,'-');
-      await fetch(API+'/api/servers', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({name:`${rolePrefix}-${suffix}`, ip:c.ip, credential_id:null}),
-      });
-      count++;
-    }
+  for (const s of (data.discovered||[])) {
+    if (seenIps.has(s.ip)) continue;
+    seenIps.add(s.ip);
+    const suffix = s.ip.split('.').pop();
+    const rolePrefix = ((s.roles||[])[0]||'node').toLowerCase().replace(/_/g,'-');
+    await fetch(API+'/api/servers', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name:`${rolePrefix}-${suffix}`, ip:s.ip, credential_id:null}),
+    });
+    count++;
   }
   await fetchServers();
   alert(`${count} server(s) added to inventory.`);

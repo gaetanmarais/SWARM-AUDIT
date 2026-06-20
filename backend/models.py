@@ -1,6 +1,6 @@
-# Version: 2.4.0
+# Version: 2.5.0
 # Date:    2026-06-20
-# Notes:   Add DiscoveredServer/DiscoveryWave/DiscoveryRun; NTP/syslog/keepalived fields on AuditResult
+# Notes:   Add is_discovered/discovered_source on AuditResult; DiscoveryRun accepts idle status
 
 from __future__ import annotations
 from typing import Optional, Literal
@@ -163,6 +163,9 @@ class AuditResult(BaseModel):
     ntp_client_servers: list[str] = []   # NTP server IPs configured on this node
     syslog_targets: list[str] = []       # Remote syslog forwarding targets
     keepalived_peers: list[str] = []     # VRRP unicast peers (other HA nodes)
+    # Set by run_audit_with_discovery() on nodes found beyond the seed list
+    is_discovered: bool = False
+    discovered_source: str = ""  # keepalived_peer|haproxy_backend|gw_cluster|gw_es|gw_lcs|ntp_target|syslog_target|es_seed
     # Live data
     listen_ports: list[ListenPort] = []
     connections: list[NetConnection] = []
@@ -189,7 +192,7 @@ class DiscoveryRun(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     started_at: str
     finished_at: Optional[str] = None
-    status: Literal["running", "done", "error"] = "running"
+    status: Literal["idle", "running", "done", "error"] = "running"
     waves: list[DiscoveryWave] = []
     total_discovered: int = 0
     error: Optional[str] = None

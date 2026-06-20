@@ -25,9 +25,8 @@ from models import (
     Server, ServerCreate,
     Inventory, AuditRun, AuditResult,
     AnalysisResult, AnalysisModule, InventorySettings,
-    DiscoveryRun,
 )
-from audit import run_audit, run_discovery, extract_candidate_ips
+from audit import run_audit, run_audit_with_discovery, extract_candidate_ips
 from svg_gen import generate_svg
 from health_report import generate_health_report_html
 from analysis import run_analysis
@@ -221,7 +220,6 @@ async def delete_server(server_id: str):
 _current_audit: Optional[AuditRun] = None
 _current_analysis: Optional[AnalysisResult] = None
 _analysis_cancel: list[bool] = [False]
-_current_discovery: Optional[DiscoveryRun] = None
 
 
 async def _do_audit(audit_run: AuditRun, inv: Inventory) -> None:
@@ -232,7 +230,7 @@ async def _do_audit(audit_run: AuditRun, inv: Inventory) -> None:
         audit_run.results.append(r)
 
     try:
-        await run_audit(inv.servers, inv.credentials, on_result=_on_result)
+        await run_audit_with_discovery(inv.servers, inv.credentials, on_result=_on_result)
         audit_run.status = "done"
     except Exception:
         log.exception("Audit failed")
@@ -268,35 +266,12 @@ async def _do_audit(audit_run: AuditRun, inv: Inventory) -> None:
             asyncio.create_task(_do_analysis(audit_run.results))
 
 
-async def _do_discovery(seed_servers: list, inv: Inventory) -> None:
-    global _current_discovery
-    from datetime import datetime, timezone
-
-    def _on_wave_done(wave, results) -> None:
-        if _current_discovery:
-            # Wave already appended by run_discovery; just persist interim state
-            pass
-
-    try:
-        run = await run_discovery(
-            seed_servers=seed_servers,
-            credentials=inv.credentials,
-            on_wave_done=_on_wave_done,
-        )
-        run.finished_at = datetime.now(timezone.utc).isoformat()
-        run.status = "done"
-        _current_discovery = run
-        inv2 = load_inventory()
-        inv2.last_discovery = run
-        save_inventory(inv2)
-        log.info("Discovery complete: %d waves, %d new nodes", len(run.waves), run.total_discovered)
-    except Exception as exc:
-        log.exception("Discovery failed")
-        if _current_discovery:
-            _current_discovery.status = "error"
-            _current_discovery.error = str(exc)
-            from datetime import datetime, timezone
-            _current_discovery.finished_at = datetime.now(timezone.utc).isoformat()
+def _get_audit_results() -> list[AuditResult]:
+    """Return current or last audit results."""
+    if _current_audit and _current_audit.results:
+        return _current_audit.results
+    inv = load_inventory()
+    return inv.last_audit.results if inv.last_audit else []
 
 
 @app.post("/api/audit/run")
@@ -350,45 +325,28 @@ async def clear_audit():
     return {"ok": True}
 
 
-# ─── Discovery ────────────────────────────────────────────────────────────────
-
-@app.post("/api/discover")
-async def trigger_discovery(background_tasks: BackgroundTasks):
-    """Start auto-discovery from all configured servers as seeds."""
-    global _current_discovery
-    if _current_discovery and _current_discovery.status == "running":
-        return {"status": "already_running"}
-
-    inv = load_inventory()
-    if not inv.servers:
-        raise HTTPException(400, "No seed servers in inventory")
-    if not any(c.is_default for c in inv.credentials):
-        raise HTTPException(400, "No default credential configured — needed to SSH discovered nodes")
-
-    from datetime import datetime, timezone
-    _current_discovery = DiscoveryRun(started_at=datetime.now(timezone.utc).isoformat())
-    background_tasks.add_task(_do_discovery, inv.servers, inv)
-    return {"status": "started"}
-
-
-@app.get("/api/discover/status")
-async def discover_status():
-    if _current_discovery is not None:
-        return _current_discovery.model_dump(exclude={"waves"})
-    inv = load_inventory()
-    if inv.last_discovery:
-        return inv.last_discovery.model_dump(exclude={"waves"})
-    return {"status": "idle"}
-
+# ─── Discovery (read-only — discovery happens automatically during Run Audit) ──
 
 @app.get("/api/discover/results")
 async def discover_results():
-    if _current_discovery is not None:
-        return _current_discovery
-    inv = load_inventory()
-    if inv.last_discovery:
-        return inv.last_discovery
-    return DiscoveryRun(started_at="", status="idle")
+    """Return discovered servers from the last audit (is_discovered=True results)."""
+    results = _get_audit_results()
+    discovered = [r for r in results if r.is_discovered]
+    return {
+        "total_discovered": len(discovered),
+        "audit_status": _current_audit.status if _current_audit else "idle",
+        "discovered": [
+            {
+                "ip": r.server_ip,
+                "name": r.server_name,
+                "source": r.discovered_source,
+                "roles": [role.role for role in r.roles],
+                "success": r.success,
+                "error": r.error,
+            }
+            for r in discovered
+        ],
+    }
 
 
 # ─── Analysis ────────────────────────────────────────────────────────────────
