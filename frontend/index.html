@@ -561,7 +561,17 @@ async function loadDiscovery() {
         ).join('');
     }
 
-    el.innerHTML = signalsHtml + discoveredHtml;
+    // Debug log
+    const debugLines = data.debug_log || [];
+    let debugHtml = '';
+    if (debugLines.length) {
+      debugHtml = '<details class="mt-4">'
+        + '<summary class="cursor-pointer text-xs text-slate-500 hover:text-slate-300 select-none py-1">Discovery debug log (' + debugLines.length + ' lines)</summary>'
+        + '<pre class="mt-2 p-3 bg-slate-950 rounded text-xs font-mono text-slate-400 overflow-auto max-h-96 whitespace-pre-wrap leading-relaxed">'
+        + debugLines.map(l => esc(l)).join('\n')
+        + '</pre></details>';
+    }
+    el.innerHTML = signalsHtml + discoveredHtml + debugHtml;
   } catch(e) {
     el.innerHTML = '<p class="text-red-400 text-sm">Failed to load discovery results.</p>';
   }

@@ -26,7 +26,7 @@ from models import (
     Inventory, AuditRun, AuditResult,
     AnalysisResult, AnalysisModule, InventorySettings,
 )
-from audit import run_audit, run_audit_with_discovery, extract_candidate_ips
+from audit import run_audit, run_audit_with_discovery, extract_candidate_ips, _discovery_debug_log
 from svg_gen import generate_svg
 from health_report import generate_health_report_html
 from analysis import run_analysis
@@ -43,16 +43,29 @@ FRONTEND_DIR     = _APP_ROOT / "frontend"
 DUMPS_DIR        = DATA_DIR / "dumps"
 
 def _git_hash() -> str:
+    # Try subprocess (dev / host with git)
     try:
         import subprocess
-        return subprocess.check_output(
+        h = subprocess.check_output(
             ["git", "rev-parse", "--short", "HEAD"],
             cwd=Path(__file__).parent,
-            stderr=subprocess.DEVNULL,
-            text=True,
+            stderr=subprocess.DEVNULL, text=True,
         ).strip()
+        if h:
+            return h
     except Exception:
-        return "unknown"
+        pass
+    # Fallback: read .git/HEAD directly (works in containers without git binary)
+    try:
+        git_dir = Path(__file__).parent.parent / ".git"
+        head = (git_dir / "HEAD").read_text().strip()
+        if head.startswith("ref: "):
+            ref_file = git_dir / head[5:]
+            return ref_file.read_text().strip()[:7]
+        return head[:7]
+    except Exception:
+        pass
+    return "unknown"
 
 APP_VERSION = _git_hash()
 app = FastAPI(title="ARCIS-SWARM", version=APP_VERSION)
@@ -366,9 +379,11 @@ async def discover_results():
         for r in results
         if r.success
     ]
+    import audit as _audit_mod
     return {
         "total_discovered": len(discovered),
         "audit_status": _current_audit.status if _current_audit else "idle",
+        "debug_log": list(_audit_mod._discovery_debug_log),
         "discovered": [
             {
                 "ip": r.server_ip,

@@ -296,6 +296,16 @@ async def run_audit(
     return list(await asyncio.gather(*[_task(s) for s in servers]))
 
 
+# Global debug log — populated during each audit run, read by /api/discover/results
+_discovery_debug_log: list[str] = []
+
+
+def _dlog(msg: str) -> None:
+    """Append to the in-memory discovery debug log (and Python logger)."""
+    _discovery_debug_log.append(msg)
+    log.info("[discovery] %s", msg)
+
+
 async def run_audit_with_discovery(
     seed_servers: list[Server],
     credentials: list[Credential],
@@ -303,25 +313,39 @@ async def run_audit_with_discovery(
     max_waves: int = 4,
 ) -> list[AuditResult]:
     """
-    Multi-wave audit: audit seeds first, then SSH into each IP discovered from
-    their configs (keepalived peers, HAProxy backends, gateway cluster/ES/LCS IPs,
-    NTP targets, syslog targets).  Repeats until no new IPs or max_waves reached.
-    Discovered nodes get is_discovered=True and discovered_source set.
-    For each discovered node, tries default credential first, then all others on failure.
+    Multi-wave audit with full debug logging.
+    Each wave extracts candidate IPs from the previous wave's results and probes them.
+    GW private targets (gw_es/gw_lcs/gw_cluster) always use the GW as jump host.
+    NTP/syslog targets use the reporting node as jump host (they may be on private network).
     """
+    global _discovery_debug_log
+    _discovery_debug_log = []
+
     default_cred = next((c for c in credentials if c.is_default), None)
     known_ips: set[str] = {s.ip for s in seed_servers}
     all_results: list[AuditResult] = []
 
+    _dlog(f"Starting audit — {len(seed_servers)} seed(s): {[s.ip for s in seed_servers]}")
+    _dlog(f"Credentials available: {[c.name for c in credentials]} — default: {default_cred.name if default_cred else 'none'}")
+
     # Wave 0 — audit configured seed servers
+    _dlog("=== Wave 0: auditing seed servers ===")
     wave_results = await run_audit(seed_servers, credentials, on_result=on_result)
     all_results.extend(wave_results)
+    for r in wave_results:
+        if r.success:
+            roles = [rd.role for rd in r.roles]
+            _dlog(f"  {r.server_ip} ({r.server_name}): OK roles={roles} "
+                  f"keepalived={r.keepalived_peers} backends={[b.ip for b in r.haproxy_backends]} "
+                  f"gw_cluster={r.gw_cluster_ips} gw_es={r.gw_es_ips} gw_lcs={r.gw_lcs_ips} "
+                  f"ntp={r.ntp_client_servers} syslog={r.syslog_targets}")
+        else:
+            _dlog(f"  {r.server_ip} ({r.server_name}): FAILED — {r.error}")
 
     if not default_cred:
-        log.info("No default credential — skipping discovery waves")
+        _dlog("No default credential — skipping discovery waves")
         return all_results
 
-    # Ordered fallback list: default first, then all others
     fallback_creds = [default_cred] + [c for c in credentials if not c.is_default]
 
     for wave in range(1, max_waves + 1):
@@ -330,29 +354,25 @@ async def run_audit_with_discovery(
         for r in wave_results:
             if not r.success:
                 continue
-            for cand in extract_candidate_ips(r, known_ips):
+            new_cands = extract_candidate_ips(r, known_ips)
+            for cand in new_cands:
                 if cand.ip not in seen:
                     seen.add(cand.ip)
                     known_ips.add(cand.ip)
                     candidates.append(cand)
+                    jump_info = f" via jump {cand.jump_host_ip}" if cand.jump_host_ip else " direct"
+                    _dlog(f"  candidate: {cand.ip} source={cand.source} role={cand.hint_role}{jump_info}")
 
         if not candidates:
-            # Log what fields each wave result had, to help diagnose empty discovery
+            _dlog(f"=== Wave {wave}: no candidates — stopping ===")
             for r in wave_results:
                 if r.success:
-                    log.info(
-                        "Discovery wave %d — %s (%s): keepalived=%d ha_backends=%d "
-                        "gw_cluster=%d gw_es=%d gw_lcs=%d ntp=%d syslog=%d es_seed=%d",
-                        wave, r.server_ip, r.server_name,
-                        len(r.keepalived_peers), len(r.haproxy_backends),
-                        len(r.gw_cluster_ips), len(r.gw_es_ips), len(r.gw_lcs_ips),
-                        len(r.ntp_client_servers), len(r.syslog_targets), len(r.es_seed_hosts),
-                    )
-            log.info("Discovery wave %d: no new candidates — stopping", wave)
+                    _dlog(f"  {r.server_ip}: gw_config_path={r.gw_config_path!r} "
+                          f"gw_cluster={r.gw_cluster_ips} gw_es={r.gw_es_ips} gw_lcs={r.gw_lcs_ips} "
+                          f"ntp={r.ntp_client_servers} syslog={r.syslog_targets}")
             break
 
-        log.info("Discovery wave %d: %d new IPs to probe — %s", wave, len(candidates),
-                 [c.ip for c in candidates])
+        _dlog(f"=== Wave {wave}: probing {len(candidates)} candidate(s) ===")
         source_map = {c.ip: c for c in candidates}
 
         async def _disc_task(cand: DiscoveredServer) -> AuditResult:
@@ -360,24 +380,20 @@ async def run_audit_with_discovery(
             role_prefix = cand.hint_role.lower().replace("_", "-") or "node"
             srv = Server(name=f"{role_prefix}-{suffix}", ip=cand.ip, credential_id=None)
 
-            # CASTOR/storage nodes: create a stub entry — no SSH audit needed
             if cand.hint_role == "CASTOR":
-                log.info("CASTOR stub %s — skipping SSH", cand.ip)
+                _dlog(f"  {cand.ip}: CASTOR stub — no SSH")
                 r = AuditResult(
-                    server_id=srv.id,
-                    server_name=srv.name,
-                    server_ip=cand.ip,
+                    server_id=srv.id, server_name=srv.name, server_ip=cand.ip,
                     success=True,
                     roles=[RoleDetection(role="CASTOR", reason="discovered via gateway config")],
-                    is_discovered=True,
-                    discovered_source=cand.source,
+                    is_discovered=True, discovered_source=cand.source,
                 )
                 if on_result:
                     on_result(r)
                 return r
 
-            if cand.jump_host_ip:
-                log.info("Probing %s via jump host %s", cand.ip, cand.jump_host_ip)
+            jump_info = f"via jump {cand.jump_host_ip}" if cand.jump_host_ip else "direct"
+            _dlog(f"  {cand.ip} ({cand.source}): SSH {jump_info} ...")
             r = await audit_server_with_fallback(
                 srv, fallback_creds,
                 jump_host_ip=cand.jump_host_ip,
@@ -385,6 +401,12 @@ async def run_audit_with_discovery(
             )
             r.is_discovered = True
             r.discovered_source = source_map[cand.ip].source
+            if r.success:
+                roles = [rd.role for rd in r.roles]
+                _dlog(f"  {cand.ip}: OK roles={roles} ntp={r.ntp_client_servers} syslog={r.syslog_targets} "
+                      f"gw_es={r.gw_es_ips} gw_lcs={r.gw_lcs_ips}")
+            else:
+                _dlog(f"  {cand.ip}: FAILED — {r.error}")
             if on_result:
                 on_result(r)
             return r
@@ -392,6 +414,7 @@ async def run_audit_with_discovery(
         wave_results = list(await asyncio.gather(*[_disc_task(c) for c in candidates]))
         all_results.extend(wave_results)
 
+    _dlog(f"Discovery complete — {len(all_results)} total results")
     return all_results
 
 
@@ -400,9 +423,11 @@ def extract_candidate_ips(
     known_ips: set[str],
 ) -> list[DiscoveredServer]:
     """
-    Extract candidate IPs to discover from an audit result.
-    Sources that expose private-network IPs (gw_cluster, gw_es, gw_lcs) carry
-    jump_host_ip = result.server_ip so the discovery wave tunnels through the GW.
+    Extract candidate IPs from an audit result.
+    - gw_cluster/gw_es/gw_lcs: private-network IPs → jump through the GW (result.server_ip)
+    - ntp/syslog targets: may be private → jump through the reporting node
+    - keepalived_peers/haproxy_backends: same public network → direct
+    - es_seed_hosts: same subnet as ES → jump if ES was itself jumped
     """
     candidates: list[DiscoveredServer] = []
     seen: set[str] = set()
@@ -418,27 +443,29 @@ def extract_candidate_ips(
             ip=ip, source=source, hint_role=hint_role, jump_host_ip=jump_host_ip,
         ))
 
-    # Same-network sources — no jump needed
+    # Public-network sources — direct access
     for ip in result.keepalived_peers:
         _add(ip, "keepalived_peer", "HAPROXY")
     for be in result.haproxy_backends:
         _add(be.ip, "haproxy_backend", "CONTENT_GATEWAY")
-    for ip in result.ntp_client_servers:
-        _add(ip, "ntp_target", "SCS")
-    for ip in result.syslog_targets:
-        _add(ip, "syslog_target", "SCS")
 
-    # Private-network sources — tunnel through the GW that reported them
-    gw_ip = result.server_ip  # the GW is the jump host for its private targets
+    # Private-network sources — always tunnel through the node that reported them
+    node_ip = result.server_ip
     for ip in result.gw_cluster_ips:
-        _add(ip, "gw_cluster", "CASTOR", jump_host_ip=gw_ip)
+        _add(ip, "gw_cluster", "CASTOR", jump_host_ip=node_ip)
     for ip in result.gw_es_ips:
-        _add(ip, "gw_es", "ELASTICSEARCH", jump_host_ip=gw_ip)
+        _add(ip, "gw_es", "ELASTICSEARCH", jump_host_ip=node_ip)
     for ip in result.gw_lcs_ips:
-        _add(ip, "gw_lcs", "LISTING_CACHE_SERVER", jump_host_ip=gw_ip)
+        _add(ip, "gw_lcs", "LISTING_CACHE_SERVER", jump_host_ip=node_ip)
 
-    # ES peers: same subnet as the reporting ES node — use it as jump if it was itself jumped
-    jump = result.server_ip if result.is_discovered else ""
+    # NTP/syslog: may be private — always tunnel through the reporting node
+    for ip in result.ntp_client_servers:
+        _add(ip, "ntp_target", "SCS", jump_host_ip=node_ip)
+    for ip in result.syslog_targets:
+        _add(ip, "syslog_target", "SCS", jump_host_ip=node_ip)
+
+    # ES peers: jump through ES itself if it was discovered (private network)
+    jump = node_ip if result.is_discovered else ""
     for ip in result.es_seed_hosts:
         _add(ip, "es_seed", "ELASTICSEARCH", jump_host_ip=jump)
 
