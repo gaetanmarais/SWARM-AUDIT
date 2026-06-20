@@ -432,12 +432,26 @@ def extract_candidate_ips(
     candidates: list[DiscoveredServer] = []
     seen: set[str] = set()
 
-    def _add(raw_ip: str, source: str, hint_role: str = "", jump_host_ip: str = "") -> None:
+    def _is_private(ip: str) -> bool:
+        """True for RFC1918 / link-local / loopback ranges."""
+        return (
+            ip.startswith("10.")
+            or ip.startswith("192.168.")
+            or ip.startswith("169.254.")
+            or ip.startswith("127.")
+            or ip == "0.0.0.0" or ip == "::1"
+            or any(ip.startswith(f"172.{n}.") for n in range(16, 32))
+        )
+
+    def _add(raw_ip: str, source: str, hint_role: str = "", jump_host_ip: str = "",
+             private_only: bool = False) -> None:
         ip = raw_ip.split(":")[0].strip()
         if not ip or ip in known_ips or ip in seen:
             return
         if ip.startswith("127.") or ip == "0.0.0.0" or ip == "::1":
             return
+        if private_only and not _is_private(ip):
+            return   # public NTP/syslog servers are not infrastructure nodes
         seen.add(ip)
         candidates.append(DiscoveredServer(
             ip=ip, source=source, hint_role=hint_role, jump_host_ip=jump_host_ip,
@@ -458,11 +472,11 @@ def extract_candidate_ips(
     for ip in result.gw_lcs_ips:
         _add(ip, "gw_lcs", "LISTING_CACHE_SERVER", jump_host_ip=node_ip)
 
-    # NTP/syslog: may be private — always tunnel through the reporting node
+    # NTP/syslog: private IPs only (public pool.ntp.org etc. are not infra nodes)
     for ip in result.ntp_client_servers:
-        _add(ip, "ntp_target", "SCS", jump_host_ip=node_ip)
+        _add(ip, "ntp_target", "SCS", jump_host_ip=node_ip, private_only=True)
     for ip in result.syslog_targets:
-        _add(ip, "syslog_target", "SCS", jump_host_ip=node_ip)
+        _add(ip, "syslog_target", "SCS", jump_host_ip=node_ip, private_only=True)
 
     # ES peers: jump through ES itself if it was discovered (private network)
     jump = node_ip if result.is_discovered else ""

@@ -649,6 +649,7 @@ if [ -n "$GW_CONFIG_PATH" ]; then
         if echo "$_line" | grep -qE '^\s*\['; then
             _cur_sec=$(echo "$_line" | grep -oE '\[[a-zA-Z0-9_]+\]' | head -1 \
                 | tr -d '[]' | tr '[:upper:]' '[:lower:]')
+            echo "[arcis] GW section: [$_cur_sec]" >&2
             continue
         fi
         # Must contain at least one IP address
