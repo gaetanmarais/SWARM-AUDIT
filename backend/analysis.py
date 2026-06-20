@@ -14,7 +14,7 @@ from models import AuditResult, AnalysisResult, AnalysisModule, AnalysisFinding
 
 log = logging.getLogger(__name__)
 
-CLAUDE_MODEL = "claude-sonnet-4-6"
+CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 
 # One query per Swarm RAG skill available in the Hub
 RAG_QUERIES = [
