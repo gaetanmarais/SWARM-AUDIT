@@ -491,8 +491,9 @@ async function loadDiscovery() {
     let signalsHtml = '';
     if (signals.length) {
       const rows = signals.map(s => {
+        const srcLabel = SOURCE_LABELS[s.discovered_source] || s.discovered_source || '';
         const tag = s.is_discovered
-          ? '<span class="text-xs bg-blue-900 text-blue-300 px-1.5 py-0.5 rounded">discovered</span>'
+          ? '<span class="text-xs bg-blue-900 text-blue-300 px-1.5 py-0.5 rounded">discovered via ' + esc(srcLabel) + '</span>'
           : '<span class="text-xs bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded">seed</span>';
         const gwCfg = s.gw_config_path
           ? '<div class="mb-1"><span class="text-slate-500 text-xs">Config:</span> <span class="font-mono text-xs text-green-400">'+esc(s.gw_config_path)+'</span></div>'

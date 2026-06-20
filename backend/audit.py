@@ -1,6 +1,6 @@
-# Version: 2.3.0
+# Version: 2.4.0
 # Date:    2026-06-20
-# Notes:   SSH connect wrapped in short timeout; all creds tried for seeds too; no retry on timeout
+# Notes:   Jump-host support for private-network targets (GW→Storage/ES/LCS via SSH tunnel)
 
 from __future__ import annotations
 import asyncio
@@ -21,9 +21,30 @@ SSH_CONNECT_TIMEOUT = 20   # seconds — TCP connect + SSH handshake + auth
 SCRIPT_TIMEOUT     = 600   # seconds — script execution (GW/SCS can be slow)
 
 
+async def _make_connect_kwargs(host: str, credential: Credential, tunnel=None) -> dict:
+    """Build asyncssh.connect() kwargs for the given credential, optionally tunnelled."""
+    kw: dict = {
+        "host": host,
+        "port": credential.port,
+        "username": credential.username,
+        "known_hosts": None,
+        "connect_timeout": SSH_CONNECT_TIMEOUT,
+    }
+    if tunnel is not None:
+        kw["tunnel"] = tunnel
+    if credential.private_key:
+        kw["client_keys"] = [asyncssh.import_private_key(credential.private_key)]
+    elif credential.password:
+        kw["password"] = credential.password
+    else:
+        raise ValueError("Credential has neither password nor private_key")
+    return kw
+
+
 async def audit_server(
     server: Server,
     credential: Credential,
+    tunnel=None,  # open asyncssh.SSHClientConnection to use as SSH jump host
 ) -> AuditResult:
     base = AuditResult(
         server_id=server.id,
@@ -33,21 +54,7 @@ async def audit_server(
     )
 
     try:
-        connect_kwargs: dict = {
-            "host": server.ip,
-            "port": credential.port,
-            "username": credential.username,
-            "known_hosts": None,
-            "connect_timeout": SSH_CONNECT_TIMEOUT,
-        }
-        if credential.private_key:
-            connect_kwargs["client_keys"] = [
-                asyncssh.import_private_key(credential.private_key)
-            ]
-        elif credential.password:
-            connect_kwargs["password"] = credential.password
-        else:
-            raise ValueError("Credential has neither password nor private_key")
+        connect_kwargs = await _make_connect_kwargs(server.ip, credential, tunnel=tunnel)
 
         # Wrap the entire connect+auth in a hard timeout — asyncssh connect_timeout
         # only covers TCP; auth can still hang indefinitely on some setups.
@@ -150,41 +157,83 @@ async def audit_server(
     return base
 
 
-_SSH_RETRY_ERRORS = (
-    "SSH error", "Permission denied", "Authentication failed",
-    "No credential", "connect timeout",
-)
 _NO_RETRY_ERRORS = ("Script timeout", "Script exit", "JSON parse")
+
+
+def _should_retry(err: str) -> bool:
+    """True if the error is an auth/SSH failure worth retrying with another cred."""
+    if not err:
+        return False
+    if any(kw in err for kw in _NO_RETRY_ERRORS):
+        return False   # script executed — wrong cred won't help
+    if "connect timeout" in err:
+        return False   # host unreachable — no point trying other creds
+    return True        # SSH/auth error → try next cred
+
+
+async def _open_jump(jump_host_ip: str, creds: list[Credential]):
+    """Open an SSH connection to the jump host (try all creds). Returns conn or None."""
+    for cred in creds:
+        try:
+            kw = await _make_connect_kwargs(jump_host_ip, cred)
+            conn = await asyncio.wait_for(asyncssh.connect(**kw), timeout=SSH_CONNECT_TIMEOUT)
+            log.info("Jump host %s: connected via cred '%s'", jump_host_ip, cred.name)
+            return conn
+        except asyncio.TimeoutError:
+            log.info("Jump host %s: connect timeout with cred '%s'", jump_host_ip, cred.name)
+            return None   # unreachable — stop trying
+        except asyncssh.Error as e:
+            log.info("Jump host %s: SSH error with cred '%s': %s", jump_host_ip, cred.name, e)
+        except Exception as e:
+            log.info("Jump host %s: error with cred '%s': %s", jump_host_ip, cred.name, e)
+    return None
+
 
 async def audit_server_with_fallback(
     server: Server,
     ordered_creds: list[Credential],
+    jump_host_ip: str = "",
+    jump_host_creds: Optional[list[Credential]] = None,
 ) -> AuditResult:
     """
-    Try credentials in order (default first).
-    Retry only on SSH/auth errors — never on script timeout or script errors,
-    and never on SSH connect timeout (host unreachable, not a wrong-password issue).
+    Try credentials in order (default first), optionally via a jump host.
+    - jump_host_ip: if set, open that bastion first and tunnel through it.
+    - jump_host_creds: credentials to try on the jump host (same list as ordered_creds by default).
+    Retries only on SSH/auth errors, never on connect timeout or script errors.
     """
-    last: Optional[AuditResult] = None
-    for cred in ordered_creds:
-        log.debug("Trying cred '%s' on %s", cred.name, server.ip)
-        r = await audit_server(server, cred)
-        if r.success:
-            return r
-        last = r
-        err = r.error or ""
-        if any(kw in err for kw in _NO_RETRY_ERRORS):
-            # Script ran (auth succeeded) but script itself failed — no point retrying
-            return r
-        if "connect timeout" in err:
-            # Host is unreachable — no point trying other creds
-            return r
-        # SSH auth failure → try next credential
-        log.info("Cred '%s' failed on %s (%s) — trying next", cred.name, server.ip, err[:60])
-    return last or AuditResult(
-        server_id=server.id, server_name=server.name, server_ip=server.ip,
-        success=False, error="No credential available",
-    )
+    tunnel = None
+    tunnel_owner = None  # the conn we opened and must close
+
+    try:
+        if jump_host_ip:
+            jcreds = jump_host_creds or ordered_creds
+            tunnel_owner = await _open_jump(jump_host_ip, jcreds)
+            if tunnel_owner is None:
+                return AuditResult(
+                    server_id=server.id, server_name=server.name, server_ip=server.ip,
+                    success=False,
+                    error=f"Jump host {jump_host_ip} unreachable (tried {len(jcreds)} cred(s))",
+                )
+            tunnel = tunnel_owner
+
+        last: Optional[AuditResult] = None
+        for cred in ordered_creds:
+            log.debug("Trying cred '%s' on %s (jump=%s)", cred.name, server.ip, jump_host_ip or "none")
+            r = await audit_server(server, cred, tunnel=tunnel)
+            if r.success:
+                return r
+            last = r
+            if not _should_retry(r.error or ""):
+                return r
+            log.info("Cred '%s' failed on %s (%s) — trying next", cred.name, server.ip, (r.error or "")[:60])
+
+        return last or AuditResult(
+            server_id=server.id, server_name=server.name, server_ip=server.ip,
+            success=False, error="No credential available",
+        )
+    finally:
+        if tunnel_owner is not None:
+            tunnel_owner.close()
 
 
 async def run_audit(
@@ -292,7 +341,13 @@ async def run_audit_with_discovery(
             suffix = cand.ip.split(".")[-1]
             role_prefix = cand.hint_role.lower().replace("_", "-") or "node"
             srv = Server(name=f"{role_prefix}-{suffix}", ip=cand.ip, credential_id=None)
-            r = await audit_server_with_fallback(srv, fallback_creds)
+            if cand.jump_host_ip:
+                log.info("Probing %s via jump host %s", cand.ip, cand.jump_host_ip)
+            r = await audit_server_with_fallback(
+                srv, fallback_creds,
+                jump_host_ip=cand.jump_host_ip,
+                jump_host_creds=fallback_creds,
+            )
             r.is_discovered = True
             r.discovered_source = source_map[cand.ip].source
             if on_result:
@@ -309,35 +364,49 @@ def extract_candidate_ips(
     result: AuditResult,
     known_ips: set[str],
 ) -> list[DiscoveredServer]:
-    """Extract candidate IPs to discover from an audit result."""
+    """
+    Extract candidate IPs to discover from an audit result.
+    Sources that expose private-network IPs (gw_cluster, gw_es, gw_lcs) carry
+    jump_host_ip = result.server_ip so the discovery wave tunnels through the GW.
+    """
     candidates: list[DiscoveredServer] = []
     seen: set[str] = set()
 
-    def _add(raw_ip: str, source: str, hint_role: str = "") -> None:
+    def _add(raw_ip: str, source: str, hint_role: str = "", jump_host_ip: str = "") -> None:
         ip = raw_ip.split(":")[0].strip()
         if not ip or ip in known_ips or ip in seen:
             return
         if ip.startswith("127.") or ip == "0.0.0.0" or ip == "::1":
             return
         seen.add(ip)
-        candidates.append(DiscoveredServer(ip=ip, source=source, hint_role=hint_role))
+        candidates.append(DiscoveredServer(
+            ip=ip, source=source, hint_role=hint_role, jump_host_ip=jump_host_ip,
+        ))
 
+    # Same-network sources — no jump needed
     for ip in result.keepalived_peers:
         _add(ip, "keepalived_peer", "HAPROXY")
     for be in result.haproxy_backends:
         _add(be.ip, "haproxy_backend", "CONTENT_GATEWAY")
-    for ip in result.gw_cluster_ips:
-        _add(ip, "gw_cluster", "CASTOR")
-    for ip in result.gw_es_ips:
-        _add(ip, "gw_es", "ELASTICSEARCH")
-    for ip in result.gw_lcs_ips:
-        _add(ip, "gw_lcs", "LISTING_CACHE_SERVER")
-    for ip in result.es_seed_hosts:
-        _add(ip, "es_seed", "ELASTICSEARCH")
     for ip in result.ntp_client_servers:
         _add(ip, "ntp_target", "SCS")
     for ip in result.syslog_targets:
         _add(ip, "syslog_target", "SCS")
+
+    # Private-network sources — tunnel through the GW that reported them
+    gw_ip = result.server_ip  # the GW is the jump host for its private targets
+    for ip in result.gw_cluster_ips:
+        _add(ip, "gw_cluster", "CASTOR", jump_host_ip=gw_ip)
+    for ip in result.gw_es_ips:
+        _add(ip, "gw_es", "ELASTICSEARCH", jump_host_ip=gw_ip)
+    for ip in result.gw_lcs_ips:
+        _add(ip, "gw_lcs", "LISTING_CACHE_SERVER", jump_host_ip=gw_ip)
+
+    # ES peers: same subnet as the reporting ES node — use it as jump if it was itself jumped
+    jump = result.server_ip if result.is_discovered else ""
+    for ip in result.es_seed_hosts:
+        _add(ip, "es_seed", "ELASTICSEARCH", jump_host_ip=jump)
+
     return candidates
 
 

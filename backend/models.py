@@ -179,6 +179,7 @@ class DiscoveredServer(BaseModel):
     ip: str
     source: str   # keepalived_peer|haproxy_backend|gw_cluster|gw_es|gw_lcs|ntp_target|syslog_target|es_seed
     hint_role: str = ""   # guessed role from discovery source
+    jump_host_ip: str = ""  # if non-empty: SSH via this bastion to reach ip (private-network targets)
 
 
 class DiscoveryWave(BaseModel):
