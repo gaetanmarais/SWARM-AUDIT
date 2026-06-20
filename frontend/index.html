@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <!--
-  Version: 1.16.0
+  Version: 1.17.0
   Date:    2026-06-20
-  Notes:   showTab loads results/analysis on switch; analysis poll retries idle; init loads analysis
+  Notes:   proxy-safe: export via fetch+blob; detail modal via event delegation (no inline onclick)
 -->
 <html lang="en">
 <head>
@@ -129,7 +129,7 @@
       Health Report
     </a>
     <!-- Download Report (standalone HTML, no credentials) -->
-    <a href="/api/export-report" download="arcis-swarm-report.html"
+    <button id="export-report-btn" onclick="downloadReport()"
        class="btn btn-ghost flex items-center gap-1.5 text-xs"
        title="Télécharger le rapport HTML autonome — sans inventaire ni credentials">
       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -137,7 +137,7 @@
           d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
       </svg>
       Download Report
-    </a>
+    </button>
     <button onclick="clearAudit()" id="clear-btn"
       class="btn btn-ghost flex items-center gap-1.5 text-xs"
       title="Clear previous audit results">
@@ -736,9 +736,7 @@ function _resultCardHtml(res) {
   const primaryRole = (res.roles || [{role:'UNKNOWN'}])[0].role;
   const isStorageNode = primaryRole === 'STORAGE_NODE';
   const detailBtn = (res.success || res._discovered)
-    ? `<button onclick="${isStorageNode ? 'openSnModal' : 'openConnModal'}(
-        _auditResultsCache.find(r=>r.server_id==='${res.server_id}') || _discStorageCache.find(r=>r.server_id==='${res.server_id}')
-      )" class="btn btn-ghost text-xs mt-2">Détails →</button>`
+    ? `<button class="btn btn-ghost text-xs mt-2 detail-btn" data-server-id="${res.server_id}" data-is-sn="${isStorageNode ? '1' : '0'}">Détails →</button>`
     : '';
 
   const discoveredBadge = res._discovered
@@ -1185,6 +1183,7 @@ function _snmpColToRows(table) {
 }
 
 function openSnModal(res) {
+  if (!res) return;
   _snCurrentRes = res;
   _snCurrentSn  = null;
 
@@ -2220,6 +2219,7 @@ let _connIpToName = {};
 let _connActiveTab = 'connections';
 
 function openConnModal(res) {
+  if (!res) return;
   _connCurrentRes = res;
   const allNodes = _auditResultsCache;
 
@@ -2709,6 +2709,30 @@ function closeCfgModal(event) {
   document.getElementById('cfg-modal').classList.add('hidden');
 }
 
+// ─── Export report (fetch+blob — works through any reverse proxy) ────────
+async function downloadReport() {
+  const btn = document.getElementById('export-report-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
+  try {
+    const r = await fetch(API+'/api/export-report');
+    if (!r.ok) { alert('Export failed: ' + r.status); return; }
+    const blob = await r.blob();
+    const cd = r.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename="?([^"]+)"?/);
+    const filename = m ? m[1] : 'arcis-swarm-report.html';
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  } catch(e) {
+    alert('Export failed: ' + e);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg> Download Report'; }
+  }
+}
+
 // ─── Clear audit ─────────────────────────────────────────────────────────
 async function clearAudit() {
   const badge = document.getElementById('audit-status-badge');
@@ -3149,6 +3173,19 @@ function applyStoredTheme() {
 async function init() {
   applyStoredTheme();
   _setupSvgPan();
+  // Event delegation — avoids inline onclick in dynamic HTML (blocked by some proxy CSP headers)
+  document.getElementById('results-list')?.addEventListener('click', e => {
+    const btn = e.target.closest('.detail-btn');
+    if (!btn) return;
+    const id = btn.dataset.serverId;
+    const isSn = btn.dataset.isSn === '1';
+    const res = _auditResultsCache.find(r => r.server_id === id)
+             || _discStorageCache.find(r => r.server_id === id);
+    if (!res) return;
+    isSn ? openSnModal(res) : openConnModal(res);
+  });
+  // Export button wired via addEventListener (robust against CSP blocking inline handlers)
+  document.getElementById('export-report-btn')?.addEventListener('click', downloadReport);
   fetch(API+'/api/version').then(r=>r.json()).then(d=>{
     const el = document.getElementById('build-badge');
     if (el && d.version) el.textContent = 'build:'+d.version;
