@@ -94,7 +94,7 @@
 <div class="border-b border-slate-800 px-6 py-4 flex items-center justify-between">
   <div>
     <h1 class="text-xl font-bold tracking-widest" style="color:#60a5fa">ARCIS-SWARM</h1>
-    <p class="text-xs mt-0.5" style="color:var(--fg-dim);">Infrastructure Audit &amp; Role Mapping</p>
+    <p class="text-xs mt-0.5" style="color:var(--fg-dim);">Infrastructure Audit &amp; Role Mapping &nbsp;<span id="build-badge" class="font-mono text-slate-600 text-xs"></span></p>
   </div>
   <div class="flex items-center gap-3">
     <!-- Theme toggle -->
@@ -3129,6 +3129,10 @@ function applyStoredTheme() {
 async function init() {
   applyStoredTheme();
   _setupSvgPan();
+  fetch(API+'/api/version').then(r=>r.json()).then(d=>{
+    const el = document.getElementById('build-badge');
+    if (el && d.version) el.textContent = 'build:'+d.version;
+  }).catch(()=>{});
   // Mouse-wheel zoom — works on all browsers (no CSS zoom quirks)
   const _dc = document.getElementById('diagram-container');
   if (_dc) _dc.addEventListener('wheel', (e) => {

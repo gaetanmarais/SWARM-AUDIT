@@ -158,6 +158,11 @@ async def root():
     return HTMLResponse(index.read_text())
 
 
+@app.get("/api/version")
+async def version():
+    return {"version": APP_VERSION}
+
+
 # ─── Credentials ─────────────────────────────────────────────────────────────
 
 @app.get("/api/credentials")
