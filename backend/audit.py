@@ -72,20 +72,25 @@ async def audit_server(
             # Unique name per session — avoids collision if the same host is audited concurrently
             remote_script = f"/tmp/_arcis_audit_{uuid.uuid4().hex[:8]}.sh"
 
+            # Validate the path before any use — refuse to proceed if it looks wrong
+            if not (remote_script.startswith("/tmp/_arcis_audit_") and remote_script.endswith(".sh")):
+                raise RuntimeError(f"Unexpected remote_script path, refusing to continue: {remote_script!r}")
+
             async with conn.start_sftp_client() as sftp:
                 async with sftp.open(remote_script, "wb") as f:
                     await f.write(script_content)
             log.info("TMP WRITE  %s:%s (%d bytes)", server.ip, remote_script, len(script_content))
 
-            await conn.run(f"chmod +x {remote_script}", check=True)
+            await conn.run(f'chmod +x -- "{remote_script}"', check=True)
 
             try:
                 result = await asyncio.wait_for(
-                    conn.run(f"bash {remote_script}", check=False),
+                    conn.run(f'bash -- "{remote_script}"', check=False),
                     timeout=SCRIPT_TIMEOUT,
                 )
             finally:
-                await conn.run(f"rm -f {remote_script}", check=False)
+                # Double-guard: Python validation above + shell refuses empty/unquoted expansion
+                await conn.run(f'[ -n "{remote_script}" ] && rm -f -- "{remote_script}"', check=False)
                 log.info("TMP DELETE %s:%s", server.ip, remote_script)
 
             if result.returncode != 0:
