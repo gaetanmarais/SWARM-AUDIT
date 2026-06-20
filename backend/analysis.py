@@ -1,6 +1,6 @@
-# Version: 3.0.0
+# Version: 3.1.0
 # Date:    2026-06-20
-# Notes:   Chunked analysis: phase 1 per-role parallel, phase 2 synthesis
+# Notes:   Longer retry waits + inter-call gap for hub_mcp 429 resilience
 
 from __future__ import annotations
 import asyncio
@@ -16,40 +16,43 @@ log = logging.getLogger(__name__)
 
 CLAUDE_MODEL = "claude-sonnet-4-6"
 
-# Multiple targeted queries to hit the various Swarm skill/RAG collections
+# One query per Swarm RAG skill available in the Hub
 RAG_QUERIES = [
-    "HAProxy DataCore Swarm load balancer maxconn TCP connection limits backend server configuration",     # 0
-    "Content Gateway DataCore Swarm HTTP performance tuning connection pool configuration parameters",      # 1
-    "Elasticsearch DataCore Swarm cluster health JVM heap memory shards index configuration",              # 2
-    "Castor Swarm storage nodes health replication erasure coding disk volume castor.log errors",          # 3
-    "Listing Cache Server LCS RabbitMQ Redis DataCore Swarm configuration performance",                    # 4
-    "SCS CSN platform server DataCore Swarm cluster services NTP DHCP syslog configuration",              # 5
-    "DataCore Swarm common errors troubleshooting log analysis disk failure recovery",                     # 6
-    "DataCore Swarm network NIC bonding multicast VLAN IGMP snooping configuration",                      # 7
-    "DataCore Swarm replication policy erasure coding best practices sizing memory",                       # 8
-    "HAProxy SSL TLS offload DataCore Swarm frontend backend ACL configuration",                          # 9
+    "HAProxy DataCore Swarm load balancer maxconn TCP connection limits backend server configuration",          # 0  swarm-haproxy-ssl
+    "HAProxy SSL TLS offload DataCore Swarm frontend backend ACL certificate configuration",                   # 1  swarm-haproxy-ssl
+    "Content Gateway DataCore Swarm HTTP S3 performance tuning connection pool configuration parameters",       # 2  swarm-gateway
+    "DataCore Swarm gateway S3 access policy bucket authentication CORS configuration",                        # 3  swarm-gateway
+    "Elasticsearch DataCore Swarm cluster health JVM heap memory shards index configuration",                  # 4  swarm-elasticsearch
+    "Elasticsearch DataCore Swarm index lifecycle ILM shard allocation replica configuration",                 # 5  swarm-elasticsearch
+    "Castor DataCore Swarm storage nodes health replication erasure coding disk volume errors",                 # 6  swarm-storage-nodes
+    "DataCore Swarm storage node sizing capacity planning disk failure replacement procedure",                  # 7  swarm-storage-nodes
+    "DataCore Swarm replication policy erasure coding best practices sizing memory protection",                 # 8  swarm-replication
+    "DataCore Swarm replication domain protection level cross-cluster configuration",                          # 9  swarm-replication
+    "Listing Cache Server LCS RabbitMQ Redis DataCore Swarm configuration performance tuning",                 # 10 swarm (LCS)
+    "SCS CSN platform server DataCore Swarm cluster services NTP DHCP syslog configuration",                  # 11 swarm (SCS)
+    "DataCore Swarm architecture cluster deployment network multicast VLAN IGMP configuration",                # 12 swarm (core)
+    "DataCore Swarm how-to troubleshooting best practices installation upgrade procedure",                     # 13 swarm-howto
+    "DataCore Swarm common errors disk failure recovery cluster rebuild procedure",                            # 14 swarm-howto
+    "FileFly DataCore file migration policy tiering lifecycle content gateway configuration",                  # 15 swarm-filefly
+    "DataCore Swarm monitoring SNMP alerting metrics healthreport cluster status performance",                 # 16 swarm-monitoring
+    "DataCore Swarm monitoring dashboard alerts threshold configuration Prometheus Grafana",                   # 17 swarm-monitoring
 ]
 
-# Map each role to the RAG query indices most relevant to it
-ROLE_RAG_MAP: dict[str, list[int]] = {
-    "HAPROXY":              [0, 6, 7, 9],
-    "CONTENT_GATEWAY":      [1, 6, 7],
-    "ELASTICSEARCH":        [2, 6, 7],
-    "CASTOR":               [3, 6, 7, 8],
-    "STORAGE_NODE":         [3, 6, 7, 8],
-    "LISTING_CACHE":        [4, 6, 7],
-    "LISTING_CACHE_SERVER": [4, 6, 7],
-    "SCS":                  [5, 6, 7],
-    "UNKNOWN":              [6, 7],
-}
-_DEFAULT_RAG_INDICES = [6, 7]
+# All RAG indices — sent to every role so no skill is missed
+_ALL_RAG_INDICES = list(range(len(RAG_QUERIES)))
+
+ROLE_RAG_MAP: dict[str, list[int]] = {role: _ALL_RAG_INDICES for role in (
+    "HAPROXY", "CONTENT_GATEWAY", "ELASTICSEARCH", "CASTOR", "STORAGE_NODE",
+    "LISTING_CACHE", "LISTING_CACHE_SERVER", "SCS", "UNKNOWN",
+)}
+_DEFAULT_RAG_INDICES = _ALL_RAG_INDICES
 
 MODULE_SCHEMA = """{
   "role": "ROLE_NAME",
   "servers": ["server_name"],
   "summary": "one-line overall assessment",
   "config_findings": [{"severity":"CRITICAL|WARNING|INFO|OK","title":"...","detail":"...","recommendation":"...","servers":["..."]}],
-  "log_findings": [{"severity":"CRITICAL|WARNING|INFO|OK","title":"...","detail":"...","recommendation":"...","servers":["..."]}]
+  "log_findings": []
 }"""
 
 CROSS_SCHEMA = """{
@@ -113,11 +116,11 @@ def _mcp_call_sync(mcp_url: str, token: str, tool: str, arguments: dict) -> dict
 
 
 def _ask_claude_with_retry(
-    mcp_url: str, token: str, arguments: dict, max_attempts: int = 4
+    mcp_url: str, token: str, arguments: dict, max_attempts: int = 6
 ) -> dict:
     """Call ask_claude with exponential backoff on 429 rate-limit errors."""
-    # Delays: 30s, 60s, 120s between attempts
-    waits = [30, 60, 120]
+    # Delays: 60s, 90s, 120s, 180s, 240s between attempts
+    waits = [60, 90, 120, 180, 240]
     for attempt in range(max_attempts):
         resp = _mcp_call_sync(mcp_url, token, "ask_claude", arguments)
         if not resp:
@@ -185,7 +188,7 @@ def _extract_ask_claude_answer(response: dict) -> str:
 
 
 def _server_summary(r: AuditResult) -> str:
-    """Compact text summary of a server for the Claude prompt."""
+    """Compact config-only summary for the Claude prompt (keeps token count low)."""
     lines: list[str] = [f"=== {r.server_name} ({r.server_ip}) ==="]
 
     if not r.success:
@@ -194,28 +197,15 @@ def _server_summary(r: AuditResult) -> str:
 
     roles_str = ", ".join(rd.role for rd in r.roles) or "UNKNOWN"
     lines.append(f"  Roles: {roles_str}")
-    lines.append(f"  OS: {r.os}  Kernel: {r.kernel}  Uptime: {(r.uptime_sec or 0)//3600}h")
-
-    if r.cpu:
-        lines.append(f"  CPU: {r.cpu.count} cores — {r.cpu.model}")
-    if r.ram:
-        used_pct = round((1 - r.ram.free_mb / r.ram.total_mb) * 100) if r.ram.total_mb else 0
-        lines.append(f"  RAM: {r.ram.total_mb} MB total  {r.ram.free_mb} MB free ({used_pct}% used)")
-
-    for d in r.disks[:6]:
-        lines.append(f"  Disk {d.mount}: {d.size_gb} GB total  {d.avail_gb} GB free ({d.used_pct} used)")
-
-    if r.network_interfaces:
-        ifs = [f"{ni.iface}:{ni.ip}" for ni in r.network_interfaces[:4]]
-        lines.append(f"  Interfaces: {', '.join(ifs)}")
+    lines.append(f"  OS: {r.os}  Kernel: {r.kernel}")
 
     if r.listen_ports:
         lines.append(f"  Listen ports: {', '.join(lp.port for lp in r.listen_ports[:20])}")
 
     if r.config_contents:
         lines.append("  CONFIG FILES:")
-        for path, content in list(r.config_contents.items())[:6]:
-            lines.append(f"    [{path}]\n{content[:1500]}")
+        for path, content in list(r.config_contents.items())[:8]:
+            lines.append(f"    [{path}]\n{content[:2000]}")
 
     if r.haproxy_vips:
         lines.append(f"  HAProxy VIPs: {', '.join(r.haproxy_vips)}")
@@ -232,43 +222,6 @@ def _server_summary(r: AuditResult) -> str:
 
     if r.es_cluster_name:
         lines.append(f"  ES cluster: {r.es_cluster_name}")
-    if r.es_cat_health:
-        lines.append(f"  ES health:\n{r.es_cat_health[:600]}")
-    if r.es_cat_nodes:
-        lines.append(f"  ES nodes:\n{r.es_cat_nodes[:1000]}")
-    if r.es_cat_indices:
-        lines.append(f"  ES indices:\n{r.es_cat_indices[:800]}")
-    if r.es_cat_alloc:
-        lines.append(f"  ES disk alloc:\n{r.es_cat_alloc[:500]}")
-    if r.es_node_stats:
-        lines.append(f"  ES node stats:\n{r.es_node_stats[:800]}")
-
-    if r.discovered_storage_nodes:
-        lines.append(f"  Storage nodes ({len(r.discovered_storage_nodes)} discovered):")
-        for sn in r.discovered_storage_nodes[:12]:
-            lines.append(
-                f"    {sn.ip}: avail={sn.avail_pct} used={sn.used} "
-                f"streams={sn.streams} errors={sn.errors} version={sn.version}"
-            )
-    if r.swarm_cluster_summary:
-        lines.append(f"  Swarm cluster summary:\n{r.swarm_cluster_summary[:800]}")
-
-    svcs = [s for s, v in [
-        ("syslog", r.is_syslog_server), ("NTP", r.is_ntp_server),
-        ("DHCP", r.is_dhcp_server), ("PXE", r.is_pxe_server),
-    ] if v]
-    if svcs:
-        lines.append(f"  Infrastructure services: {', '.join(svcs)}")
-
-    if r.installed_packages:
-        pkgs = [f"{p.name}-{p.version}" for p in r.installed_packages[:20]]
-        lines.append(f"  Key packages: {', '.join(pkgs)}")
-
-    if r.logs:
-        lines.append("  LOGS last 24h (deduplicated):")
-        for role_key, log_content in r.logs.items():
-            if log_content:
-                lines.append(f"    [{role_key}]\n{log_content[:1800]}")
 
     return "\n".join(lines)
 
@@ -393,6 +346,10 @@ async def _analyze_role_group(
         if cancel_flag[0]:
             raise asyncio.CancelledError()
 
+        # Inter-call gap for hub_mcp to reduce burst 429s
+        if not want_direct:
+            await asyncio.sleep(5)
+
         # Build server summaries block
         server_summaries = "\n\n".join(_server_summary(r) for r in servers)
 
@@ -401,21 +358,23 @@ async def _analyze_role_group(
         rag_parts = [rag_cache[i] for i in indices if i in rag_cache]
         rag_block = ""
         if rag_parts:
-            rag_text = "\n\n".join(rag_parts)[:4000]
+            rag_text = "\n\n".join(rag_parts)[:16000]
             rag_block = f"\nSWARM KNOWLEDGE BASE:\n{rag_text}"
 
         system = (
             "You are a senior DataCore Swarm infrastructure architect performing a configuration audit.\n"
+            "Analyze ONLY the configuration files provided — do not speculate about logs or runtime state.\n"
             "Return ONLY valid JSON — no text, no markdown, no code fences.\n"
             "Severity: CRITICAL (immediate risk), WARNING (should fix), INFO (observation), OK (correct).\n"
-            "Cite actual values from audit data. Minimum 2 findings per section. Include positive OK findings."
+            "Cite actual values from the config files. Minimum 2 findings. Include positive OK findings.\n"
+            "log_findings must be an empty array []."
         )
 
         prompt = (
             f"ROLE TO ANALYZE: {role}\n\n"
             f"SERVERS:\n{server_summaries}"
             f"{rag_block}\n\n"
-            f"Return ONLY a JSON object for role {role}:\n{MODULE_SCHEMA}"
+            f"Analyze configuration files only. Return ONLY a JSON object for role {role}:\n{MODULE_SCHEMA}"
         )
 
         log.info("Analyzing role group: %s (%d servers, ~%d chars)…",
@@ -446,6 +405,20 @@ async def _analyze_role_group(
             )
 
 
+def _findings_block(module: AnalysisModule) -> str:
+    """Render all findings from a module as compact text for the coherence prompt."""
+    lines = [f"=== ROLE: {module.role} | Servers: {', '.join(module.servers)} ===",
+             f"  Summary: {module.summary}"]
+    for f in module.config_findings + module.log_findings:
+        lines.append(
+            f"  [{f.severity}] {f.title}\n"
+            f"    Detail: {f.detail}\n"
+            f"    Recommendation: {f.recommendation}\n"
+            f"    Affected: {', '.join(f.servers)}"
+        )
+    return "\n".join(lines)
+
+
 async def _run_synthesis(
     modules: list[AnalysisModule],
     results: list[AuditResult],
@@ -456,28 +429,14 @@ async def _run_synthesis(
     cancel_flag: list[bool],
     loop: asyncio.AbstractEventLoop,
 ) -> list[AnalysisFinding]:
-    """Phase 2: one synthesis call using compact module summaries + topology."""
+    """Phase 2: coherence pass — all findings from all roles, look for cross-component issues."""
     if cancel_flag[0]:
         raise asyncio.CancelledError()
 
-    # Compact role summaries: role | servers | summary | top CRITICAL/WARNING titles
-    role_lines: list[str] = []
-    for m in modules:
-        all_findings = m.config_findings + m.log_findings
-        notable = [
-            f.title for f in all_findings
-            if f.severity in ("CRITICAL", "WARNING")
-        ][:5]
-        notable_str = "; ".join(notable) if notable else "none"
-        servers_str = ", ".join(m.servers)
-        role_lines.append(
-            f"Role: {m.role} | Servers: {servers_str}\n"
-            f"  Summary: {m.summary}\n"
-            f"  Notable: {notable_str}"
-        )
-    role_block = "\n\n".join(role_lines)
+    # Full findings from every role module
+    findings_block = "\n\n".join(_findings_block(m) for m in modules)
 
-    # Topology block per server
+    # Topology: connectivity between servers
     topo_lines: list[str] = []
     for r in results:
         hb = len(r.haproxy_backends) if r.haproxy_backends else 0
@@ -487,26 +446,42 @@ async def _run_synthesis(
         cn = len(r.discovered_storage_nodes) if r.discovered_storage_nodes else 0
         ram = r.ram.total_mb if r.ram else 0
         topo_lines.append(
-            f"Server {r.server_name} ({r.server_ip}) | "
-            f"haproxy_backends={hb} | gw→swarm={gc} | gw→es={ge} | "
-            f"gw→lcs={gl} | castor_nodes={cn} | ram={ram}MB"
+            f"  {r.server_name} ({r.server_ip}) "
+            f"haproxy_backends={hb} gw→swarm={gc} gw→es={ge} "
+            f"gw→lcs={gl} castor_nodes={cn} ram={ram}MB"
         )
     topo_block = "\n".join(topo_lines)
 
+    # Key config values extracted per server for cross-referencing
+    cfg_lines: list[str] = []
+    for r in results:
+        if r.config_contents:
+            for path, content in list(r.config_contents.items())[:4]:
+                cfg_lines.append(f"  [{r.server_name}] {path}:\n{content[:800]}")
+    cfg_block = "\n".join(cfg_lines)
+
     system = (
-        "You are a senior DataCore Swarm infrastructure architect.\n"
-        "Identify cross-component issues. Return ONLY valid JSON — no text, no markdown, no code fences."
+        "You are a senior DataCore Swarm infrastructure architect performing a cross-component coherence audit.\n"
+        "You have received independent per-role analyses. Your job is to find issues that SPAN multiple roles:\n"
+        "  - Numerical mismatches (e.g. HAProxy maxconn 10000 but GW connection pool 200 — bottleneck)\n"
+        "  - Config values on one side that contradict or are inconsistent with another side\n"
+        "  - Missing symmetry (a parameter set on role A that should mirror a setting on role B)\n"
+        "  - Version skews, protocol mismatches, or topology gaps\n"
+        "  - Recommendations from different roles that conflict with each other\n"
+        "Do NOT repeat findings already covered in the per-role analyses. Only surface genuinely cross-cutting issues.\n"
+        "Return ONLY valid JSON — no text, no markdown, no code fences.\n"
+        "Severity: CRITICAL (immediate risk), WARNING (should fix), INFO (observation)."
     )
 
     prompt = (
-        f"ROLE ANALYSES:\n{role_block}\n\n"
+        f"PER-ROLE FINDINGS:\n{findings_block[:10000]}\n\n"
         f"TOPOLOGY & CONNECTIVITY:\n{topo_block}\n\n"
-        "Identify cross-component correlations (HAProxy maxconn vs GW pool, ES heap vs RAM ratio, "
-        "GW pool vs Castor node count, config mismatches).\n"
+        f"KEY CONFIG EXCERPTS (cross-reference):\n{cfg_block[:4000]}\n\n"
+        "Identify coherence issues that span multiple roles or servers.\n"
         f"Return ONLY:\n{CROSS_SCHEMA}"
     )
 
-    log.info("Running synthesis call (~%d chars)…", len(prompt))
+    log.info("Running coherence synthesis call (~%d chars)…", len(prompt))
     raw = await loop.run_in_executor(
         None, _call_claude_sync,
         prompt, system, want_direct, api_key, mcp_url, mcp_token,
@@ -610,9 +585,9 @@ async def run_analysis(
     if cancel_flag[0]:
         raise asyncio.CancelledError()
 
-    # ── 4. Phase 2: cross-correlation synthesis ──────────────────────────────
+    # ── 4. Phase 2: cross-role coherence pass ───────────────────────────────
     if on_progress:
-        on_progress("Phase 2/2 — cross-correlation synthesis…")
+        on_progress("Phase 2/2 — coherence check across all roles…")
 
     cross_corrs: list[AnalysisFinding] = []
     if modules:

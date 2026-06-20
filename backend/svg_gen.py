@@ -1,6 +1,7 @@
-# Version: 11.0.0
+# Version: 12.0.0
 # Date:    2026-06-20
-# Notes:   Plug-style connectors at tile edges (replace T-bar stubs), wider gaps for connector clearance
+# Notes:   Vertical LEFT(public)/RIGHT(private) backbones; L-wire routing anti-croisement;
+#          badges NIC INTERNES tuile (PUBLIC haut-gauche, PRIVE bas-droite)
 
 from __future__ import annotations
 import html as _html_mod
@@ -76,31 +77,36 @@ SUBNET_PALETTE = [
     "#9b59b6", "#1abc9c", "#e67e22",
 ]
 
-# ─── Layout constants ─────────────────────────────────────────────────────────
-NODE_W            = 280
-NODE_H            = 155
-ROLE_STRIP_W      = 58
-LEFT_BTN_W        = 40
-BODY_W            = NODE_W - ROLE_STRIP_W
-INNER_BODY_W      = BODY_W - LEFT_BTN_W
-H_GAP             = 100
-V_GAP_BASE        = 20    # minimum gap between layers when no backbone lines
-SUB_ROW_GAP       = 28
-MAX_COLS_PER_ROW  = 6
-TILE_MARGIN_X     = 15    # horizontal margin from SVG edge to tile area
-LABEL_H           = 26
-FONT              = "Arial, sans-serif"
+# ─── Tile layout ──────────────────────────────────────────────────────────────
+NODE_W          = 280
+NODE_H          = 160     # +5px vs before to accommodate badges
+ROLE_STRIP_W    = 58
+LEFT_BTN_W      = 40
+BODY_W          = NODE_W - ROLE_STRIP_W
+INNER_BODY_W    = BODY_W - LEFT_BTN_W
+H_GAP           = 100
+SUB_ROW_GAP     = 24
+MAX_COLS_PER_ROW = 6
+TILE_MARGIN_X   = 15
+LABEL_H         = 26
+FONT            = "Arial, sans-serif"
 
-# ─── Horizontal backbone constants ───────────────────────────────────────────
-BUS_THICKNESS     = 6      # backbone line stroke-width
-BUS_SPACING       = 22     # vertical spacing between stacked backbones in same gap
-BUS_GAP_PAD_TOP   = 22    # padding from top of gap to first backbone center
-BUS_GAP_PAD_BOT   = 22    # padding from last backbone center to bottom of gap
-BUS_STUB_CAP      = 8     # half-width of T-bar at tile-edge connection
-BUS_DOT_R         = 5     # ring-dot radius on backbone
-PLUG_BODY_W       = 22    # connector plug body width
-PLUG_BODY_H       = 14    # connector plug body height
-BUS_LABEL_X_PAD   = 6     # x padding for CIDR label from SVG left/right edge
+# ─── Backbone & wire constants ────────────────────────────────────────────────
+BACKBONE_PAD_L   = 130    # left margin for public backbone + wires
+BACKBONE_PAD_R   = 130    # right margin for private backbone + wires
+BACKBONE_PAD_TOP = 60     # top margin for HAProxy horizontal backbone (if present)
+BACKBONE_X_INSET = 28     # backbone line x from SVG edge
+BACKBONE_STROKE  = 5
+WIRE_STEP        = 8      # center-to-center between stacked wires
+WIRE_STROKE      = 1.5
+WIRE_ROW_MARGIN  = 14     # extra space above/below wire bundle
+MIN_LAYER_GAP    = 28
+TILE_V_PAD       = 18
+
+# NIC badge (inside tile)
+NIC_BADGE_W      = 56     # badge width
+NIC_BADGE_H      = 22     # badge height (2 text lines)
+NIC_BADGE_STEP   = 60     # horizontal step between consecutive badges
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -156,9 +162,7 @@ def _role_icon_svg(role: str, col: str, cx: int, cy: int, scale: float = 1.0) ->
         ]
     elif role in ("LISTING_CACHE", "LISTING_CACHE_SERVER"):
         pts = " ".join(t(dx, dy) for dx, dy in [(2,-8),(-3,1),(2,1),(-2,8),(3,-1),(-2,-1)])
-        return [
-            f'<polygon points="{pts}" fill="{col}" fill-opacity="0.7" stroke="{col}" stroke-width="{sw_w*0.33:.1f}"/>',
-        ]
+        return [f'<polygon points="{pts}" fill="{col}" fill-opacity="0.7" stroke="{col}" stroke-width="{sw_w*0.33:.1f}"/>']
     elif role == "SCS":
         inner, outer = sc(4), sc(7)
         teeth = []
@@ -169,9 +173,7 @@ def _role_icon_svg(role: str, col: str, cx: int, cy: int, scale: float = 1.0) ->
             x2 = cx + int(outer * _math.cos(a) + 0.5)
             y2 = cy + int(outer * _math.sin(a) + 0.5)
             teeth.append(f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="{col}" stroke-width="{sw_w:.1f}" stroke-linecap="round"/>')
-        return [
-            f'<circle cx="{cx}" cy="{cy}" r="{scale*3.5:.1f}" fill="{col}" fill-opacity="0.4" {sw}/>',
-        ] + teeth
+        return [f'<circle cx="{cx}" cy="{cy}" r="{scale*3.5:.1f}" fill="{col}" fill-opacity="0.4" {sw}/>'] + teeth
     elif role in ("CONTENT_UI", "STORAGE_UI"):
         return [
             f'<rect x="{cx - sc(8)}" y="{cy - sc(6)}" width="{sc(16)}" height="{sc(11)}" rx="{sc(2)}" fill="{col}" fill-opacity="0.15" {sw}/>',
@@ -379,98 +381,226 @@ def _node_cidrs_with_ips(r: AuditResult, subnet_colors: dict[str, str]) -> dict[
     return cidr_ips
 
 
-# ─── Horizontal backbone placement ───────────────────────────────────────────
+# ─── Backbone classification ──────────────────────────────────────────────────
 
-def _assign_subnets_to_gaps(
-    active_layers: list[int],
-    layer_sub_rows: dict[int, list[list[AuditResult]]],
+def _classify_backbone_sides(
     subnet_colors: dict[str, str],
-) -> dict[str, int]:
+    results: list[AuditResult],
+) -> dict[str, str]:
     """
-    Return cidr → gap_position.
-    Gap position i = gap BEFORE active_layers[i] (i.e. between layers[i-1] and layers[i]).
-    Gap 0 = above the first layer.
-    Gap n = below the last layer (n = len(active_layers)).
-    Backbone is placed in the gap AFTER the topmost (smallest-index) layer using it.
+    Return cidr → 'left' | 'right' | 'top'.
+    CIDRs only present in layer 0 (HAProxy) → 'top'.
+    Remaining sorted by network address: index 0 → 'left', rest → 'right'.
     """
-    cidr_layer_positions: dict[str, set[int]] = {c: set() for c in subnet_colors}
-    for pos, li in enumerate(active_layers):
-        nodes = [r for row in layer_sub_rows[li] for r in row]
-        for r in nodes:
-            for ni in r.network_interfaces:
-                if not ni.ip or not ni.prefix or _is_internal_iface(ni.iface or "") or ":" in ni.ip:
-                    continue
-                cidr = _subnet_label(ni.ip, ni.prefix)
-                if cidr in cidr_layer_positions:
-                    cidr_layer_positions[cidr].add(pos)
+    cidr_layers: dict[str, set[int]] = {c: set() for c in subnet_colors}
+    for r in results:
+        layer = _layer_of(r)
+        for ni in r.network_interfaces:
+            if not ni.ip or not ni.prefix or _is_internal_iface(ni.iface or "") or ":" in ni.ip:
+                continue
+            cidr = _subnet_label(ni.ip, ni.prefix)
+            if cidr in cidr_layers:
+                cidr_layers[cidr].add(layer)
 
-    gap_assign: dict[str, int] = {}
-    n = len(active_layers)
-    for cidr, positions in cidr_layer_positions.items():
-        if not positions:
-            gap_assign[cidr] = 0
+    top_cidrs: list[str] = []
+    other_cidrs: list[str] = []
+    for cidr, layers_set in cidr_layers.items():
+        if layers_set and layers_set == {0}:
+            top_cidrs.append(cidr)
         else:
-            # Backbone sits in the gap right AFTER the topmost layer using this subnet
-            min_pos = min(positions)
-            gap_assign[cidr] = min(min_pos + 1, n)
-    return gap_assign
+            other_cidrs.append(cidr)
+
+    try:
+        other_cidrs.sort(key=lambda c: ipaddress.ip_network(c).network_address)
+    except Exception:
+        other_cidrs.sort()
+
+    sides: dict[str, str] = {}
+    for c in top_cidrs:
+        sides[c] = "top"
+    for i, c in enumerate(other_cidrs):
+        sides[c] = "left" if i == 0 else "right"
+    return sides
 
 
-def _compute_gap_height(n_backbones: int) -> int:
-    if n_backbones == 0:
-        return V_GAP_BASE
-    return BUS_GAP_PAD_TOP + n_backbones * BUS_SPACING + BUS_GAP_PAD_BOT
+# ─── NIC badge data per server ────────────────────────────────────────────────
 
-
-# ─── Layout computation (backbone-aware) ─────────────────────────────────────
-
-def _compute_layout(
-    active_layers: list[int],
-    layer_sub_rows: dict[int, list[list[AuditResult]]],
-    gap_counts: dict[int, int],   # gap_position → number of backbone lines
-) -> tuple[dict[int, list[int]], dict[int, int]]:
+def _server_nic_data(
+    r: AuditResult,
+    cx: int,
+    cy: int,
+    backbone_sides: dict[str, str],
+    subnet_colors: dict[str, str],
+) -> tuple[list[dict], list[dict]]:
     """
-    Returns (layer_row_tops, gap_start_ys).
-    gap_start_ys[pos] = y where the gap at position pos begins.
-    pos 0 = above first layer; pos i = between layers[i-1] and layers[i].
+    Return (left_nics, right_nics) for a server tile at (cx, cy).
+    Each entry: {cx, cy, ip, cidr, iface, col}
+    PUBLIC (left): badges stacked left-to-right starting at tile top-left body area.
+    PRIVATE (right): badges stacked right-to-left starting at tile bottom-right body area.
     """
-    layer_row_tops: dict[int, list[int]] = {}
-    gap_start_ys: dict[int, int] = {}
-    y = 0
-    for pos, li in enumerate(active_layers):
-        gh = _compute_gap_height(gap_counts.get(pos, 0))
-        gap_start_ys[pos] = y
-        y += gh
-        rows = layer_sub_rows.get(li, [[]])
-        row_tops: list[int] = []
-        for j in range(len(rows)):
-            row_tops.append(y)
-            if j < len(rows) - 1:
-                y += NODE_H + SUB_ROW_GAP
-        layer_row_tops[li] = row_tops
-        y += NODE_H + LABEL_H
-    # gap after last layer
-    gap_start_ys[len(active_layers)] = y
-    return layer_row_tops, gap_start_ys
+    tile_x = cx - NODE_W // 2
+    tile_y = cy - NODE_H // 2
+
+    left_nics_raw: list[tuple[str, str, str]] = []  # (ip, cidr, iface)
+    right_nics_raw: list[tuple[str, str, str]] = []
+
+    for ni in r.network_interfaces:
+        if not ni.ip or not ni.prefix or _is_internal_iface(ni.iface or "") or ":" in ni.ip:
+            continue
+        cidr = _subnet_label(ni.ip, ni.prefix)
+        side = backbone_sides.get(cidr, "")
+        if side == "left":
+            left_nics_raw.append((ni.ip, cidr, ni.iface or "eth"))
+        elif side == "right":
+            right_nics_raw.append((ni.ip, cidr, ni.iface or "eth"))
+
+    # If no ifaces but server_ip found, try to place in left
+    if not left_nics_raw and not right_nics_raw and r.server_ip:
+        cidr = _ip_to_subnet(r.server_ip, subnet_colors)
+        side = backbone_sides.get(cidr, "left")
+        if side == "left":
+            left_nics_raw.append((r.server_ip, cidr, "eth0"))
+        elif side == "right":
+            right_nics_raw.append((r.server_ip, cidr, "eth0"))
+
+    # PUBLIC badges: top-left corner, x from left body start, y at tile top + margin
+    pub_body_x0 = tile_x + LEFT_BTN_W + 6
+    pub_badge_y  = tile_y + 3 + NIC_BADGE_H // 2
+
+    left_nics: list[dict] = []
+    for k, (ip, cidr, iface) in enumerate(left_nics_raw[:3]):
+        badge_cx = pub_body_x0 + NIC_BADGE_W // 2 + k * NIC_BADGE_STEP
+        # Don't overflow into right half — clamp
+        if badge_cx + NIC_BADGE_W // 2 > tile_x + LEFT_BTN_W + INNER_BODY_W // 2 + 10:
+            break
+        left_nics.append({
+            "cx": badge_cx, "cy": pub_badge_y,
+            "ip": ip, "cidr": cidr, "iface": iface,
+            "col": subnet_colors.get(cidr, "#3498db"),
+            "entry_x": badge_cx,           # wire enters tile at this x
+            "entry_y": tile_y,              # wire enters at tile TOP edge
+        })
+
+    # PRIVATE badges: bottom-right corner, x from right body end going left, y at tile bottom - margin
+    prv_body_x1  = tile_x + BODY_W - 6
+    prv_badge_y  = tile_y + NODE_H - 3 - NIC_BADGE_H // 2
+
+    right_nics: list[dict] = []
+    for k, (ip, cidr, iface) in enumerate(right_nics_raw[:3]):
+        badge_cx = prv_body_x1 - NIC_BADGE_W // 2 - k * NIC_BADGE_STEP
+        # Don't overflow into left half
+        if badge_cx - NIC_BADGE_W // 2 < tile_x + LEFT_BTN_W + INNER_BODY_W // 2 - 10:
+            break
+        right_nics.append({
+            "cx": badge_cx, "cy": prv_badge_y,
+            "ip": ip, "cidr": cidr, "iface": iface,
+            "col": subnet_colors.get(cidr, "#27ae60"),
+            "entry_x": badge_cx,           # wire enters tile at this x
+            "entry_y": tile_y + NODE_H,    # wire enters at tile BOTTOM edge
+        })
+
+    return left_nics, right_nics
 
 
-def _compute_backbone_ys(
-    gap_assign: dict[str, int],
-    gap_start_ys: dict[int, int],
-) -> dict[str, int]:
-    """Return cidr → y coordinate of the horizontal backbone line."""
-    groups: dict[int, list[str]] = {}
-    for cidr, pos in gap_assign.items():
-        groups.setdefault(pos, []).append(cidr)
-    for pos in groups:
-        groups[pos] = sorted(groups[pos])  # deterministic ordering
+def _draw_nic_badge(parts: list[str], bx: int, by: int, iface: str, ip: str, col: str) -> None:
+    """Draw a NIC badge centered at (bx, by) inside the tile."""
+    rx = bx - NIC_BADGE_W // 2
+    ry = by - NIC_BADGE_H // 2
+    iface_s = (iface or "eth")[:8]
+    # Show last 2 octets of IP for brevity
+    parts_ip = (ip or "").split(".")
+    ip_s = ".".join(parts_ip[-2:]) if len(parts_ip) >= 2 else ip
+    parts.append(
+        f'  <rect x="{rx}" y="{ry}" width="{NIC_BADGE_W}" height="{NIC_BADGE_H}" '
+        f'rx="3" fill="{col}" fill-opacity="0.18" stroke="{col}" stroke-width="1"/>'
+    )
+    parts.append(
+        f'  <text x="{bx}" y="{ry + 9}" text-anchor="middle" '
+        f'fill="{col}" font-size="8" font-weight="bold" font-family="{FONT}">{_esc(iface_s)}</text>'
+    )
+    parts.append(
+        f'  <text x="{bx}" y="{ry + 18}" text-anchor="middle" '
+        f'fill="{col}" font-size="7" font-family="{FONT}">{_esc(ip_s)}</text>'
+    )
 
-    backbone_y: dict[str, int] = {}
-    for pos, cidrs in groups.items():
-        y_base = gap_start_ys.get(pos, 0) + BUS_GAP_PAD_TOP
-        for k, cidr in enumerate(cidrs):
-            backbone_y[cidr] = y_base + k * BUS_SPACING + BUS_SPACING // 2
-    return backbone_y
+
+# ─── Wire routing per tile row ────────────────────────────────────────────────
+
+def _draw_row_wires(
+    parts: list[str],
+    row: list[AuditResult],
+    nic_data: dict[str, tuple[list[dict], list[dict]]],
+    positions: dict[str, tuple[int, int]],
+    tile_row_top: int,
+    backbone_x_l: int,
+    backbone_x_r: int,
+) -> None:
+    """
+    Draw L-shaped wires for one tile row.
+    PUBLIC: backbone_l → horizontal → drop to tile top → badge inside top-left.
+    PRIVATE: backbone_r → horizontal → rise to tile bottom → badge inside bottom-right.
+    Anti-crossing: sort by badge x asc (public) / desc (private), assign routing levels.
+    """
+    tile_row_bottom = tile_row_top + NODE_H
+
+    # Collect all left NICs in this row: (badge_cx, entry_x, entry_y, ip, cidr, iface, col, sid)
+    left_entries: list[dict] = []
+    right_entries: list[dict] = []
+
+    for r in row:
+        if r.server_id not in positions or r.server_id not in nic_data:
+            continue
+        left_nics, right_nics = nic_data[r.server_id]
+        for n in left_nics:
+            left_entries.append(dict(n))
+        for n in right_nics:
+            right_entries.append(dict(n))
+
+    # PUBLIC wires: sort by badge_cx ascending (leftmost = k=0 = closest routing level)
+    left_entries.sort(key=lambda e: e["cx"])
+    for k, e in enumerate(left_entries):
+        routing_y = tile_row_top - (k + 1) * WIRE_STEP
+        col = e["col"]
+        bx, entry_x, entry_y = e["cx"], e["entry_x"], e["entry_y"]
+
+        # Glow
+        parts.append(
+            f'  <polyline points="{backbone_x_l},{routing_y} {entry_x},{routing_y} {entry_x},{entry_y}" '
+            f'stroke="{col}" stroke-width="6" fill="none" opacity="0.08" '
+            f'stroke-linecap="round" stroke-linejoin="round"/>'
+        )
+        # Wire
+        parts.append(
+            f'  <polyline points="{backbone_x_l},{routing_y} {entry_x},{routing_y} {entry_x},{entry_y}" '
+            f'stroke="{col}" stroke-width="{WIRE_STROKE}" fill="none" opacity="0.85" '
+            f'stroke-linecap="round" stroke-linejoin="round"/>'
+        )
+        # Dot on backbone
+        parts.append(f'  <circle cx="{backbone_x_l}" cy="{routing_y}" r="3.5" fill="{col}" opacity="0.9"/>')
+        parts.append(f'  <circle cx="{backbone_x_l}" cy="{routing_y}" r="1.5" fill="#0c1524" opacity="0.8"/>')
+
+    # PRIVATE wires: sort by badge_cx descending (rightmost = k=0 = closest routing level)
+    right_entries.sort(key=lambda e: e["cx"], reverse=True)
+    for k, e in enumerate(right_entries):
+        routing_y = tile_row_bottom + (k + 1) * WIRE_STEP
+        col = e["col"]
+        entry_x, entry_y = e["entry_x"], e["entry_y"]
+
+        # Glow
+        parts.append(
+            f'  <polyline points="{backbone_x_r},{routing_y} {entry_x},{routing_y} {entry_x},{entry_y}" '
+            f'stroke="{col}" stroke-width="6" fill="none" opacity="0.08" '
+            f'stroke-linecap="round" stroke-linejoin="round"/>'
+        )
+        # Wire
+        parts.append(
+            f'  <polyline points="{backbone_x_r},{routing_y} {entry_x},{routing_y} {entry_x},{entry_y}" '
+            f'stroke="{col}" stroke-width="{WIRE_STROKE}" fill="none" opacity="0.85" '
+            f'stroke-linecap="round" stroke-linejoin="round"/>'
+        )
+        # Dot on backbone
+        parts.append(f'  <circle cx="{backbone_x_r}" cy="{routing_y}" r="3.5" fill="{col}" opacity="0.9"/>')
+        parts.append(f'  <circle cx="{backbone_x_r}" cy="{routing_y}" r="1.5" fill="#0c1524" opacity="0.8"/>')
 
 
 # ─── Main SVG generator ───────────────────────────────────────────────────────
@@ -492,13 +622,18 @@ def generate_svg(results: list[AuditResult]) -> str:
                 ip_to_id[ni.ip] = r.server_id
 
     subnet_colors = _build_subnet_colors(results)
+    backbone_sides = _classify_backbone_sides(subnet_colors, results)
+
+    has_left  = any(s == "left"  for s in backbone_sides.values())
+    has_right = any(s == "right" for s in backbone_sides.values())
+    has_top   = any(s == "top"   for s in backbone_sides.values())
 
     # ── Layer assignment ──────────────────────────────────────────────────────
     layers: dict[int, list[AuditResult]] = {}
     for r in results:
         layers.setdefault(_layer_of(r), []).append(r)
 
-    # ── Discovered storage nodes — deduplicate by IP ──────────────────────────
+    # ── Discovered storage nodes ──────────────────────────────────────────────
     swarmctl_lookup: dict[str, DiscoveredStorageNode] = {}
     audited_ips: set[str] = set()
     for r in results:
@@ -507,7 +642,6 @@ def generate_svg(results: list[AuditResult]) -> str:
             if ni.ip and ":" not in ni.ip and ni.ip not in ("127.0.0.1",):
                 audited_ips.add(ni.ip)
     best_sn: dict[str, DiscoveredStorageNode] = {}
-
     for r in results:
         for sn in r.discovered_storage_nodes:
             if sn.ip in audited_ips:
@@ -517,7 +651,6 @@ def generate_svg(results: list[AuditResult]) -> str:
                 best_sn[sn.ip] = sn
             elif sn.health_report is not None and existing.health_report is None:
                 best_sn[sn.ip] = sn
-
     for ip, sn in best_sn.items():
         audited_ips.add(ip)
         sid = f"disc-storage-{ip}"
@@ -526,9 +659,7 @@ def generate_svg(results: list[AuditResult]) -> str:
             chassis_id = str(sn.health_report.get("SNMP objects", {}).get("Chassis Id") or "")
         display_name = chassis_id[:16] if chassis_id else ip
         fake = AuditResult(
-            server_id=sid,
-            server_name=display_name,
-            server_ip=ip,
+            server_id=sid, server_name=display_name, server_ip=ip,
             success=(sn.status == "ok"),
             hostname=chassis_id or None,
             os=f"{sn.used}/{sn.max} · {sn.streams} str · v{sn.version}",
@@ -544,7 +675,6 @@ def generate_svg(results: list[AuditResult]) -> str:
         _audited_names[_r.server_name.lower()] = _r.server_id
         if _r.hostname:
             _audited_names[_r.hostname.lower()] = _r.server_id
-
     for r in results:
         cluster_hint = f" [{r.es_cluster_name}]" if r.es_cluster_name else ""
         for es_node in r.discovered_es_nodes:
@@ -559,8 +689,7 @@ def generate_svg(results: list[AuditResult]) -> str:
                 fake = AuditResult(
                     server_id=f"disc-es-{es_node.ip}",
                     server_name=es_node.name or es_node.ip,
-                    server_ip=es_node.ip,
-                    success=False,
+                    server_ip=es_node.ip, success=False,
                     error=f"Discovered via ES{cluster_hint}",
                     roles=[{"role": "ELASTICSEARCH", "reason": f"ES discovery{cluster_hint}"}],
                     es_cluster_name=r.es_cluster_name,
@@ -584,19 +713,56 @@ def generate_svg(results: list[AuditResult]) -> str:
         for rows in layer_sub_rows.values()
     ) if layer_sub_rows else 1
 
-    total_w = TILE_MARGIN_X * 2 + max_cols_actual * NODE_W + (max_cols_actual - 1) * H_GAP
+    # ── Backbone layout & wire space ──────────────────────────────────────────
+    # Count max NIC connections per row to size wire bundles
+    max_nl = max_nr = 0
+    for li in active_layers:
+        for row in layer_sub_rows[li]:
+            nl = nr = 0
+            for r in row:
+                for ni in r.network_interfaces:
+                    if not ni.ip or not ni.prefix or _is_internal_iface(ni.iface or "") or ":" in ni.ip:
+                        continue
+                    cidr = _subnet_label(ni.ip, ni.prefix)
+                    side = backbone_sides.get(cidr, "")
+                    if side == "left":
+                        nl += 1
+                    elif side == "right":
+                        nr += 1
+            max_nl = max(max_nl, nl)
+            max_nr = max(max_nr, nr)
+    max_nl = max(max_nl, 1)
+    max_nr = max(max_nr, 1)
 
-    # ── Backbone placement ────────────────────────────────────────────────────
-    gap_assign = _assign_subnets_to_gaps(active_layers, layer_sub_rows, subnet_colors)
-    gap_counts: dict[int, int] = {}
-    for pos in gap_assign.values():
-        gap_counts[pos] = gap_counts.get(pos, 0) + 1
+    wire_space_above = max_nl * WIRE_STEP + WIRE_ROW_MARGIN
+    wire_space_below = max_nr * WIRE_STEP + WIRE_ROW_MARGIN
 
-    # ── Layout computation (backbone-aware) ───────────────────────────────────
-    layer_row_tops, gap_start_ys = _compute_layout(active_layers, layer_sub_rows, gap_counts)
-    backbone_y = _compute_backbone_ys(gap_assign, gap_start_ys)
+    # ── Layout computation ────────────────────────────────────────────────────
+    y_cursor = TILE_V_PAD + wire_space_above
+    if has_top:
+        y_cursor = max(y_cursor, BACKBONE_PAD_TOP + wire_space_above)
 
-    # ── Node positions — grid-aligned ─────────────────────────────────────────
+    layer_row_tops: dict[int, list[int]] = {}
+    for li_idx, li in enumerate(active_layers):
+        rows = layer_sub_rows[li]
+        row_tops: list[int] = []
+        for ri in range(len(rows)):
+            row_tops.append(y_cursor)
+            if ri < len(rows) - 1:
+                y_cursor += NODE_H + wire_space_below + SUB_ROW_GAP + wire_space_above
+            else:
+                y_cursor += NODE_H
+        layer_row_tops[li] = row_tops
+        y_cursor += LABEL_H
+        if li_idx < len(active_layers) - 1:
+            y_cursor += wire_space_below + MIN_LAYER_GAP + wire_space_above
+
+    # ── Tile positions ────────────────────────────────────────────────────────
+    tile_area_w = max_cols_actual * NODE_W + (max_cols_actual - 1) * H_GAP
+    pad_l = BACKBONE_PAD_L if has_left else TILE_MARGIN_X
+    pad_r = BACKBONE_PAD_R if has_right else TILE_MARGIN_X
+    total_w = pad_l + tile_area_w + TILE_MARGIN_X + pad_r
+
     grid_step = NODE_W + H_GAP
     positions: dict[str, tuple[int, int]] = {}
     for li in active_layers:
@@ -607,21 +773,38 @@ def generate_svg(results: list[AuditResult]) -> str:
             col_offset = (max_cols_actual - n_nodes) // 2
             cy = row_tops[j] + NODE_H // 2
             for k, r in enumerate(row_nodes):
-                cx = TILE_MARGIN_X + (col_offset + k) * grid_step + NODE_W // 2
+                cx = pad_l + TILE_MARGIN_X + (col_offset + k) * grid_step + NODE_W // 2
                 positions[r.server_id] = (cx, cy)
 
-    # ── SVG dimensions ────────────────────────────────────────────────────────
-    last_li         = active_layers[-1]
-    last_row_top    = layer_row_tops[last_li][-1]
-    last_row_bottom = last_row_top + NODE_H + LABEL_H
-    # add height for any backbone lines below the last layer
-    n_after_last = gap_counts.get(len(active_layers), 0)
-    after_gap_h  = _compute_gap_height(n_after_last)
-
-    legend_h = max(60, 16 + len(subnet_colors) * 16 + 8)
-    total_h  = last_row_bottom + after_gap_h + legend_h
-
+    # ── Pre-compute NIC badge data per server ─────────────────────────────────
+    nic_data: dict[str, tuple[list[dict], list[dict]]] = {}
+    for r in results:
+        if r.server_id not in positions:
+            continue
+        cx, cy = positions[r.server_id]
+        nic_data[r.server_id] = _server_nic_data(r, cx, cy, backbone_sides, subnet_colors)
+    # Also for discovered nodes (no real interfaces, skip)
     all_nodes_flat = [r for li in active_layers for row in layer_sub_rows[li] for r in row]
+    for r in all_nodes_flat:
+        if r.server_id not in nic_data and r.server_id in positions:
+            cx, cy = positions[r.server_id]
+            nic_data[r.server_id] = _server_nic_data(r, cx, cy, backbone_sides, subnet_colors)
+
+    # ── SVG dimensions ────────────────────────────────────────────────────────
+    last_li       = active_layers[-1]
+    last_row_top  = layer_row_tops[last_li][-1]
+    tile_area_bot = last_row_top + NODE_H + LABEL_H + wire_space_below
+    legend_h      = max(60, 20 + len(subnet_colors) * 18 + 8)
+    total_h       = tile_area_bot + TILE_V_PAD + legend_h
+
+    backbone_x_l = BACKBONE_X_INSET
+    backbone_x_r = total_w - BACKBONE_X_INSET
+
+    # Backbone vertical extent
+    first_li       = active_layers[0]
+    first_row_top  = layer_row_tops[first_li][0]
+    bb_y_start     = first_row_top - wire_space_above
+    bb_y_end       = tile_area_bot
 
     # ── SVG assembly ──────────────────────────────────────────────────────────
     parts: list[str] = []
@@ -648,34 +831,93 @@ def generate_svg(results: list[AuditResult]) -> str:
         parts.append('    </marker>')
     parts.append('  </defs>')
 
-    # ── Horizontal backbone buses ─────────────────────────────────────────────
-    for cidr, by in backbone_y.items():
-        col = subnet_colors.get(cidr, "#94a3b8")
+    # ── Vertical backbone lines ────────────────────────────────────────────────
+    # Collect CIDRs per side for labels
+    cidrs_left  = [c for c, s in backbone_sides.items() if s == "left"]
+    cidrs_right = [c for c, s in backbone_sides.items() if s == "right"]
+
+    if has_left:
+        col = subnet_colors.get(cidrs_left[0], "#4a9eff") if cidrs_left else "#4a9eff"
         # Glow
         parts.append(
-            f'  <line x1="0" y1="{by}" x2="{total_w}" y2="{by}" '
-            f'stroke="{col}" stroke-width="{BUS_THICKNESS + 10}" opacity="0.10" stroke-linecap="butt"/>'
+            f'  <line x1="{backbone_x_l}" y1="{bb_y_start}" x2="{backbone_x_l}" y2="{bb_y_end}" '
+            f'stroke="{col}" stroke-width="{BACKBONE_STROKE + 10}" opacity="0.08" stroke-linecap="round"/>'
         )
         # Main line
         parts.append(
-            f'  <line x1="0" y1="{by}" x2="{total_w}" y2="{by}" '
-            f'stroke="{col}" stroke-width="{BUS_THICKNESS}" opacity="0.88" stroke-linecap="butt"/>'
+            f'  <line x1="{backbone_x_l}" y1="{bb_y_start}" x2="{backbone_x_l}" y2="{bb_y_end}" '
+            f'stroke="{col}" stroke-width="{BACKBONE_STROKE}" opacity="0.90" stroke-linecap="round"/>'
         )
-        # Vertical end caps (left & right)
-        for ex in (0, total_w):
+        # End caps
+        for ey in (bb_y_start, bb_y_end):
             parts.append(
-                f'  <line x1="{ex}" y1="{by - BUS_THICKNESS}" x2="{ex}" y2="{by + BUS_THICKNESS}" '
-                f'stroke="{col}" stroke-width="3" opacity="0.8" stroke-linecap="round"/>'
+                f'  <line x1="{backbone_x_l - 6}" y1="{ey}" x2="{backbone_x_l + 6}" y2="{ey}" '
+                f'stroke="{col}" stroke-width="2.5" opacity="0.8" stroke-linecap="round"/>'
             )
-        # CIDR label at both ends (above the line)
+        # Labels
+        for i, cidr in enumerate(cidrs_left):
+            col_c = subnet_colors.get(cidr, col)
+            parts.append(
+                f'  <text x="{backbone_x_l + 8}" y="{bb_y_start + 12 + i * 14}" '
+                f'fill="{col_c}" font-size="9" font-weight="bold" font-family="{FONT}">'
+                f'{_esc(cidr)} PUB</text>'
+            )
+
+    if has_right:
+        col = subnet_colors.get(cidrs_right[0], "#52d48a") if cidrs_right else "#52d48a"
         parts.append(
-            f'  <text x="{BUS_LABEL_X_PAD}" y="{by - 5}" '
-            f'fill="{col}" font-size="9" font-weight="bold" font-family="{FONT}">{_esc(cidr)}</text>'
+            f'  <line x1="{backbone_x_r}" y1="{bb_y_start}" x2="{backbone_x_r}" y2="{bb_y_end}" '
+            f'stroke="{col}" stroke-width="{BACKBONE_STROKE + 10}" opacity="0.08" stroke-linecap="round"/>'
         )
         parts.append(
-            f'  <text x="{total_w - BUS_LABEL_X_PAD}" y="{by - 5}" text-anchor="end" '
-            f'fill="{col}" font-size="9" font-weight="bold" font-family="{FONT}">{_esc(cidr)}</text>'
+            f'  <line x1="{backbone_x_r}" y1="{bb_y_start}" x2="{backbone_x_r}" y2="{bb_y_end}" '
+            f'stroke="{col}" stroke-width="{BACKBONE_STROKE}" opacity="0.90" stroke-linecap="round"/>'
         )
+        for ey in (bb_y_start, bb_y_end):
+            parts.append(
+                f'  <line x1="{backbone_x_r - 6}" y1="{ey}" x2="{backbone_x_r + 6}" y2="{ey}" '
+                f'stroke="{col}" stroke-width="2.5" opacity="0.8" stroke-linecap="round"/>'
+            )
+        for i, cidr in enumerate(cidrs_right):
+            col_c = subnet_colors.get(cidr, col)
+            parts.append(
+                f'  <text x="{backbone_x_r - 8}" y="{bb_y_start + 12 + i * 14}" text-anchor="end" '
+                f'fill="{col_c}" font-size="9" font-weight="bold" font-family="{FONT}">'
+                f'{_esc(cidr)} PRV</text>'
+            )
+
+    # ── HAProxy top horizontal backbone ───────────────────────────────────────
+    if has_top:
+        top_y = BACKBONE_PAD_TOP // 2
+        cidrs_top = [c for c, s in backbone_sides.items() if s == "top"]
+        for i, cidr in enumerate(cidrs_top):
+            by = top_y + i * 18
+            col = subnet_colors.get(cidr, "#e74c3c")
+            parts.append(
+                f'  <line x1="{pad_l}" y1="{by}" x2="{pad_l + tile_area_w + TILE_MARGIN_X}" y2="{by}" '
+                f'stroke="{col}" stroke-width="{BACKBONE_STROKE + 8}" opacity="0.08" stroke-linecap="round"/>'
+            )
+            parts.append(
+                f'  <line x1="{pad_l}" y1="{by}" x2="{pad_l + tile_area_w + TILE_MARGIN_X}" y2="{by}" '
+                f'stroke="{col}" stroke-width="{BACKBONE_STROKE}" opacity="0.90" stroke-linecap="round"/>'
+            )
+            parts.append(
+                f'  <text x="{pad_l}" y="{by - 4}" '
+                f'fill="{col}" font-size="9" font-weight="bold" font-family="{FONT}">'
+                f'{_esc(cidr)} HA</text>'
+            )
+            # Vertical wires down to HAProxy tiles (layer 0)
+            if 0 in layer_sub_rows:
+                for row in layer_sub_rows[0]:
+                    for r in row:
+                        if r.server_id not in positions:
+                            continue
+                        cx, cy = positions[r.server_id]
+                        tile_top = cy - NODE_H // 2
+                        parts.append(
+                            f'  <line x1="{cx}" y1="{by}" x2="{cx}" y2="{tile_top}" '
+                            f'stroke="{col}" stroke-width="{WIRE_STROKE}" opacity="0.75" stroke-dasharray="4,3"/>'
+                        )
 
     # ── Layer bands ───────────────────────────────────────────────────────────
     for li in active_layers:
@@ -685,12 +927,12 @@ def generate_svg(results: list[AuditResult]) -> str:
         band_h      = band_bottom - band_top
         label       = LAYER_LABELS.get(li, f"Layer {li}")
         parts.append(
-            f'  <rect x="{TILE_MARGIN_X - 10}" y="{band_top}" '
-            f'width="{total_w - TILE_MARGIN_X * 2 + 20}" height="{band_h}" '
+            f'  <rect x="{pad_l + TILE_MARGIN_X - 10}" y="{band_top}" '
+            f'width="{tile_area_w + 20}" height="{band_h}" '
             f'rx="10" fill="#1e3050" opacity="0.18" stroke="#2a4a70" stroke-width="1" stroke-opacity="0.45"/>'
         )
         parts.append(
-            f'  <text x="{TILE_MARGIN_X}" y="{band_bottom - 4}" '
+            f'  <text x="{pad_l + TILE_MARGIN_X}" y="{band_bottom - 4}" '
             f'fill="#4a5a9a" font-size="13" font-style="italic" font-family="{FONT}">{_esc(label)}</text>'
         )
 
@@ -705,95 +947,27 @@ def generate_svg(results: list[AuditResult]) -> str:
         if all_vips:
             vip_text = "VIP " + "  ·  ".join(all_vips)
             vip_tw   = len(vip_text) * 8 + 20
-            vip_tx   = total_w // 2 - vip_tw // 2
+            mid_x    = pad_l + tile_area_w // 2 + TILE_MARGIN_X
+            vip_tx   = mid_x - vip_tw // 2
             vip_ty   = layer_row_tops[0][0] - 22
             parts.append(
                 f'  <rect x="{vip_tx}" y="{vip_ty}" width="{vip_tw}" height="18" '
                 f'rx="6" fill="#e67e22" opacity="0.95"/>'
             )
             parts.append(
-                f'  <text x="{total_w // 2}" y="{vip_ty + 13}" text-anchor="middle" '
+                f'  <text x="{mid_x}" y="{vip_ty + 13}" text-anchor="middle" '
                 f'fill="#0f0f1e" font-size="11" font-weight="bold">{_esc(vip_text)}</text>'
             )
 
-    # ── Vertical stubs: tile → horizontal backbone ────────────────────────────
-    # Each tile connects to each subnet backbone via a vertical stub.
-    # If the backbone is above the tile → stub exits from tile TOP going UP.
-    # If the backbone is below the tile → stub exits from tile BOTTOM going DOWN.
-    # Multiple subnets per tile are spread horizontally across the tile width.
-
-    for r in all_nodes_flat:
-        if r.server_id not in positions:
-            continue
-        cx, cy = positions[r.server_id]
-        tile_top    = cy - NODE_H // 2
-        tile_bottom = cy + NODE_H // 2
-
-        cidr_ips   = _node_cidrs_with_ips(r, subnet_colors)
-        subs_sorted = [c for c in sorted(cidr_ips.keys()) if c in backbone_y]
-        n = len(subs_sorted)
-        if n == 0:
-            continue
-
-        for si, cidr in enumerate(subs_sorted):
-            by  = backbone_y[cidr]
-            col = subnet_colors[cidr]
-            prefix = cidr.split("/")[1] if "/" in cidr else "24"
-
-            # Spread stubs horizontally: centre on cx, 22px apart
-            sx = cx + round((si - (n - 1) / 2) * 22)
-
-            # Exit from tile TOP (backbone above) or BOTTOM (backbone below)
-            if by <= tile_top:
-                sy = tile_top
-                lbl_y = by - 4          # label just above the ring-dot on backbone
-                lbl_anchor = "middle"
-            else:
-                sy = tile_bottom
-                lbl_y = by + 10         # label just below the ring-dot on backbone
-                lbl_anchor = "middle"
-
-            # ── Connector plug at tile edge ───────────────────────────────────
-            # Plug body straddles the tile edge (centered on tile_top or tile_bottom)
-            pbx = sx - PLUG_BODY_W // 2
-            pby_top = sy - PLUG_BODY_H // 2
-            parts.append(
-                f'  <rect x="{pbx}" y="{pby_top}" width="{PLUG_BODY_W}" height="{PLUG_BODY_H}" '
-                f'rx="3" fill="{col}" fill-opacity="0.18" stroke="{col}" stroke-width="1.5"/>'
+    # ── L-shaped wires (draw BEFORE tiles so tiles overlay wire entry points) ─
+    for li in active_layers:
+        rows = layer_sub_rows[li]
+        row_tops = layer_row_tops[li]
+        for j, row in enumerate(rows):
+            _draw_row_wires(
+                parts, row, nic_data, positions,
+                row_tops[j], backbone_x_l, backbone_x_r,
             )
-            # Two terminal holes in the plug body
-            for hx in [sx - 5, sx + 5]:
-                parts.append(
-                    f'  <circle cx="{hx}" cy="{sy}" r="2.5" fill="#0c1524" stroke="{col}" stroke-width="1"/>'
-                )
-
-            # Line from plug body edge to backbone
-            if by <= tile_top:
-                # Bus above: line from plug top to bus
-                line_start_y = pby_top
-            else:
-                # Bus below: line from plug bottom to bus
-                line_start_y = pby_top + PLUG_BODY_H
-            parts.append(
-                f'  <line x1="{sx}" y1="{line_start_y}" x2="{sx}" y2="{by}" '
-                f'stroke="{col}" stroke-width="2" opacity="0.72"/>'
-            )
-
-            # Ring-dot on backbone
-            parts.append(
-                f'  <circle cx="{sx}" cy="{by}" r="{BUS_DOT_R}" fill="{col}" opacity="0.95"/>'
-            )
-            parts.append(
-                f'  <circle cx="{sx}" cy="{by}" r="{BUS_DOT_R - 2}" fill="#0c1524" opacity="0.85"/>'
-            )
-            # IP label near backbone
-            for ip in cidr_ips[cidr]:
-                ip_lbl = _ip_suffix_for_mask(ip, prefix)
-                parts.append(
-                    f'  <text x="{sx}" y="{lbl_y}" text-anchor="{lbl_anchor}" '
-                    f'fill="{col}" font-size="8" font-weight="bold" font-family="{FONT}">'
-                    f'{_esc(ip_lbl)}</text>'
-                )
 
     # ── ES cluster badge ──────────────────────────────────────────────────────
     if 4 in layers:
@@ -826,9 +1000,9 @@ def generate_svg(results: list[AuditResult]) -> str:
         if r.server_id not in positions:
             continue
         cx, cy = positions[r.server_id]
-        role   = _primary_role(r)
-        color  = ROLE_COLORS.get(role, "#7f8c8d")
-        x, y   = cx - NODE_W // 2, cy - NODE_H // 2
+        role    = _primary_role(r)
+        color   = ROLE_COLORS.get(role, "#7f8c8d")
+        x, y    = cx - NODE_W // 2, cy - NODE_H // 2
         is_disc = r.server_id.startswith("disc-")
         show_json = not is_disc or r.server_id.startswith("disc-storage-")
 
@@ -860,7 +1034,6 @@ def generate_svg(results: list[AuditResult]) -> str:
         )
         strip_cx = strip_x + ROLE_STRIP_W // 2
 
-        # 2a. Status icon
         if is_disc:
             status_sym, status_col = "◈", "#e67e22"
         elif r.success:
@@ -873,7 +1046,6 @@ def generate_svg(results: list[AuditResult]) -> str:
             f'{_esc(status_sym)}</text>'
         )
 
-        # 2b. Role abbreviations in strip
         role_labels = [ROLE_SHORT.get(rd.role, rd.role) for rd in r.roles] if r.roles else ["?"]
         for ri, rl in enumerate(role_labels[:4]):
             parts.append(
@@ -892,43 +1064,25 @@ def generate_svg(results: list[AuditResult]) -> str:
         det_by  = y + NODE_H // 2 - BTN_H - 2
         json_by = y + NODE_H // 2 + 2
 
-        parts.append(
-            f'  <a href="#" onclick="svgNodeDetails(event,&quot;{_esc(r.server_id)}&quot;)" style="cursor:pointer">'
-        )
-        parts.append(
-            f'  <rect x="{x+4}" y="{det_by}" width="{BTN_W}" height="{BTN_H}" rx="3" '
-            f'fill="#1e3a5f" stroke="#2563eb" stroke-width="1" opacity="0.95"/>'
-        )
-        parts.append(
-            f'  <text x="{lstrip_cx}" y="{det_by+10}" text-anchor="middle" '
-            f'fill="#93c5fd" font-size="8" font-family="{FONT}">Det.</text>'
-        )
+        parts.append(f'  <a href="#" onclick="svgNodeDetails(event,&quot;{_esc(r.server_id)}&quot;)" style="cursor:pointer">')
+        parts.append(f'  <rect x="{x+4}" y="{det_by}" width="{BTN_W}" height="{BTN_H}" rx="3" fill="#1e3a5f" stroke="#2563eb" stroke-width="1" opacity="0.95"/>')
+        parts.append(f'  <text x="{lstrip_cx}" y="{det_by+10}" text-anchor="middle" fill="#93c5fd" font-size="8" font-family="{FONT}">Det.</text>')
         parts.append('  </a>')
 
         if show_json:
-            parts.append(
-                f'  <a href="/api/audit/dump/{_esc(r.server_id)}" target="_blank"'
-                f' onclick="event.stopPropagation()">'
-            )
-            parts.append(
-                f'  <rect x="{x+4}" y="{json_by}" width="{BTN_W}" height="{BTN_H}" rx="3" '
-                f'fill="#162032" stroke="#475569" stroke-width="1" opacity="0.95"/>'
-            )
-            parts.append(
-                f'  <text x="{lstrip_cx}" y="{json_by+10}" text-anchor="middle" '
-                f'fill="#64748b" font-size="8" font-family="{FONT}">JSON</text>'
-            )
+            parts.append(f'  <a href="/api/audit/dump/{_esc(r.server_id)}" target="_blank" onclick="event.stopPropagation()">')
+            parts.append(f'  <rect x="{x+4}" y="{json_by}" width="{BTN_W}" height="{BTN_H}" rx="3" fill="#162032" stroke="#475569" stroke-width="1" opacity="0.95"/>')
+            parts.append(f'  <text x="{lstrip_cx}" y="{json_by+10}" text-anchor="middle" fill="#64748b" font-size="8" font-family="{FONT}">JSON</text>')
             parts.append('  </a>')
 
         # 3. Role icon
-        icon_cy = y + 48
+        icon_cy = y + 52
         parts.extend(_role_icon_svg(role, color, body_cx, icon_cy, scale=2.5))
 
         # 4. Server name
         name_str = (r.server_name[:20] + "…") if len(r.server_name) > 20 else r.server_name
-        name_y   = y + 82
         parts.append(
-            f'  <text x="{body_cx}" y="{name_y}" text-anchor="middle" '
+            f'  <text x="{body_cx}" y="{y + 90}" text-anchor="middle" '
             f'fill="#f1f5f9" font-size="14" font-weight="bold" font-family="{FONT}">'
             f'{_esc(name_str)}</text>'
         )
@@ -940,9 +1094,9 @@ def generate_svg(results: list[AuditResult]) -> str:
                 _used_pct = 100 - int(sn_data.avail_pct.replace("%", "").strip())
             except (ValueError, AttributeError):
                 _used_pct = 0
-            bar_y   = y + NODE_H - 40
-            bar_w   = INNER_BODY_W - 16
-            filled  = int(bar_w * _used_pct / 100)
+            bar_y  = y + NODE_H - 42
+            bar_w  = INNER_BODY_W - 16
+            filled = int(bar_w * _used_pct / 100)
             bar_col = "#e74c3c" if _used_pct > 85 else ("#f39c12" if _used_pct > 70 else "#27ae60")
             parts.append(
                 f'  <text x="{body_cx}" y="{bar_y - 3}" text-anchor="middle" '
@@ -957,41 +1111,21 @@ def generate_svg(results: list[AuditResult]) -> str:
         if not r.success and r.error:
             err = (r.error[:22] + "…") if len(r.error) > 22 else r.error
             parts.append(
-                f'  <text x="{body_cx}" y="{y+NODE_H-6}" text-anchor="middle" '
+                f'  <text x="{body_cx}" y="{y+NODE_H-26}" text-anchor="middle" '
                 f'fill="#f87171" font-size="8" font-family="{FONT}">{_esc(err)}</text>'
             )
         elif is_disc:
             parts.append(
-                f'  <text x="{body_cx}" y="{y+NODE_H-6}" text-anchor="middle" '
+                f'  <text x="{body_cx}" y="{y+NODE_H-26}" text-anchor="middle" '
                 f'fill="#e67e22" font-size="8" font-style="italic" font-family="{FONT}">discovered</text>'
             )
 
-        # 7. NIC interface badges — one small badge per subnet, top of body area
-        cidr_ips_tile = _node_cidrs_with_ips(r, subnet_colors)
-        badge_x = x + LEFT_BTN_W + 4
-        for bk, (bcidr, bips) in enumerate(cidr_ips_tile.items()):
-            bcol   = subnet_colors.get(bcidr, "#94a3b8")
-            bx_pos = badge_x + bk * 38
-            by_pos = y + 4
-            if bx_pos + 36 > x + BODY_W - 4:
-                break  # no room
-            # Find iface name for this cidr
-            iface_lbl = "eth"
-            for ni in r.network_interfaces:
-                if not ni.ip or not ni.prefix or _is_internal_iface(ni.iface or "") or ":" in ni.ip:
-                    continue
-                if _subnet_label(ni.ip, ni.prefix) == bcidr:
-                    iface_lbl = (ni.iface or "eth")[:6]
-                    break
-            parts.append(
-                f'  <rect x="{bx_pos}" y="{by_pos}" width="36" height="14" '
-                f'rx="3" fill="{bcol}" fill-opacity="0.12" '
-                f'stroke="{bcol}" stroke-width="1" stroke-opacity="0.65"/>'
-            )
-            parts.append(
-                f'  <text x="{bx_pos + 4}" y="{by_pos + 10}" '
-                f'fill="{bcol}" font-size="8" font-family="{FONT}">{_esc(iface_lbl)}</text>'
-            )
+        # 7. NIC badges — PUBLIC top-left, PRIVATE bottom-right (inside tile)
+        left_nics, right_nics = nic_data.get(r.server_id, ([], []))
+        for n in left_nics:
+            _draw_nic_badge(parts, n["cx"], n["cy"], n["iface"], n["ip"], n["col"])
+        for n in right_nics:
+            _draw_nic_badge(parts, n["cx"], n["cy"], n["iface"], n["ip"], n["col"])
 
         # 8. Transparent click overlay
         parts.append(
@@ -1002,21 +1136,21 @@ def generate_svg(results: list[AuditResult]) -> str:
 
     # ── Legend ────────────────────────────────────────────────────────────────
     if subnet_colors:
-        nlw = 190
-        nlh = 18 + len(subnet_colors) * 16 + 8
+        side_labels = {"left": "PUB", "right": "PRV", "top": "HA"}
+        nlw = 210
+        nlh = 20 + len(subnet_colors) * 18 + 8
         nlx = total_w - nlw - 12
         nly = total_h - nlh - 8
-        parts.append(
-            f'  <rect x="{nlx}" y="{nly}" width="{nlw}" height="{nlh}" '
-            f'rx="6" fill="#162032" opacity="0.85" stroke="#2d4a6b" stroke-width="1"/>'
-        )
-        parts.append(
-            f'  <text x="{nlx+8}" y="{nly+14}" fill="#94a3b8" font-size="10" font-weight="bold">Networks</text>'
-        )
+        parts.append(f'  <rect x="{nlx}" y="{nly}" width="{nlw}" height="{nlh}" rx="6" fill="#162032" opacity="0.85" stroke="#2d4a6b" stroke-width="1"/>')
+        parts.append(f'  <text x="{nlx+8}" y="{nly+14}" fill="#94a3b8" font-size="10" font-weight="bold">Networks</text>')
         for i, (cidr, col) in enumerate(subnet_colors.items()):
-            iy = nly + 24 + i * 16
+            iy   = nly + 22 + i * 18
+            side = backbone_sides.get(cidr, "")
+            slbl = side_labels.get(side, "")
             parts.append(f'  <rect x="{nlx+8}" y="{iy}" width="12" height="10" rx="2" fill="{col}"/>')
             parts.append(f'  <text x="{nlx+26}" y="{iy+9}" fill="{col}" font-size="9">{_esc(cidr)}</text>')
+            if slbl:
+                parts.append(f'  <text x="{nlx+nlw-8}" y="{iy+9}" text-anchor="end" fill="{col}" font-size="8" opacity="0.7">[{slbl}]</text>')
 
     # ── Embedded node meta for JS connection overlay ───────────────────────────
     node_meta: dict = {}
@@ -1030,47 +1164,37 @@ def generate_svg(results: list[AuditResult]) -> str:
                 all_ips_list.append(ni.ip)
 
         live_conns = [
-            {"dst": c.remote_addr, "port": c.remote_port,
-             "proc": (c.process or "")[:20], "cfg": False}
+            {"dst": c.remote_addr, "port": c.remote_port, "proc": (c.process or "")[:20], "cfg": False}
             for c in r.connections
             if c.remote_addr not in ("", "0.0.0.0", "*")
         ]
-
         cfg_conns: list[dict] = []
         for be in r.haproxy_backends:
             ip = (be.ip or "").split(":")[0]
             if ip:
-                cfg_conns.append({"dst": ip, "port": be.port or "80",
-                                   "proc": "haproxy-backend", "cfg": True})
+                cfg_conns.append({"dst": ip, "port": be.port or "80", "proc": "haproxy-backend", "cfg": True})
         for addr in r.gw_cluster_ips:
             ip, _, port = addr.partition(":")
             if ip:
-                cfg_conns.append({"dst": ip, "port": port or "80",
-                                   "proc": "gw→storage", "cfg": True})
+                cfg_conns.append({"dst": ip, "port": port or "80", "proc": "gw→storage", "cfg": True})
         for addr in r.gw_es_ips:
             ip, _, port = addr.partition(":")
             if ip:
-                cfg_conns.append({"dst": ip, "port": port or "9200",
-                                   "proc": "gw→es", "cfg": True})
+                cfg_conns.append({"dst": ip, "port": port or "9200", "proc": "gw→es", "cfg": True})
         for addr in r.gw_lcs_ips:
             ip, _, port = addr.partition(":")
             if ip:
-                cfg_conns.append({"dst": ip, "port": port or "6379",
-                                   "proc": "gw→lcs", "cfg": True})
+                cfg_conns.append({"dst": ip, "port": port or "6379", "proc": "gw→lcs", "cfg": True})
 
         node_meta[r.server_id] = {
             "cx": cx2, "cy": cy2,
-            "hw": NODE_W // 2,
-            "hh": NODE_H // 2,
+            "hw": NODE_W // 2, "hh": NODE_H // 2,
             "name": r.server_name,
             "role": _primary_role(r),
             "role_color": ROLE_COLORS.get(_primary_role(r), "#7f8c8d"),
             "ips": all_ips_list,
             "conns": live_conns + cfg_conns,
-            "listen": [
-                {"port": lp.port, "proc": (lp.process or "")[:20]}
-                for lp in r.listen_ports
-            ],
+            "listen": [{"port": lp.port, "proc": (lp.process or "")[:20]} for lp in r.listen_ports],
         }
 
     # ── Implied infrastructure flows ──────────────────────────────────────────
@@ -1082,10 +1206,7 @@ def generate_svg(results: list[AuditResult]) -> str:
         if r2.is_ntp_server:    svc_ips["ntp"].append(r2.server_ip)
         if r2.is_dhcp_server:   svc_ips["dhcp"].append(r2.server_ip)
         if r2.is_pxe_server:    svc_ips["pxe"].append(r2.server_ip)
-    _scs_fallback = [
-        r2.server_ip for r2 in all_nodes_flat
-        if any(rd.role == "SCS" for rd in r2.roles)
-    ]
+    _scs_fallback = [r2.server_ip for r2 in all_nodes_flat if any(rd.role == "SCS" for rd in r2.roles)]
     for _svc in svc_ips:
         if not svc_ips[_svc] and _scs_fallback:
             svc_ips[_svc] = _scs_fallback
@@ -1093,7 +1214,7 @@ def generate_svg(results: list[AuditResult]) -> str:
     for r2 in all_nodes_flat:
         if r2.server_id not in node_meta:
             continue
-        m      = node_meta[r2.server_id]
+        m = node_meta[r2.server_id]
         r2_ips = set(m["ips"])
         primary = m["role"]
         for _svc, _server_ips in svc_ips.items():
@@ -1109,10 +1230,7 @@ def generate_svg(results: list[AuditResult]) -> str:
                 elif _svc == "pxe" and primary == "STORAGE_NODE":
                     m["conns"].append({"dst": _sip, "port": "69", "proc": "pxe/tftp", "cfg": True})
 
-    meta_json_str = _json.dumps(
-        {"nodes": node_meta, "ip_to_id": ip_to_id},
-        separators=(",", ":"),
-    )
+    meta_json_str = _json.dumps({"nodes": node_meta, "ip_to_id": ip_to_id}, separators=(",", ":"))
     parts.append(f'  <desc id="swarm-node-data">{_html_mod.escape(meta_json_str)}</desc>')
     parts.append("</svg>")
     return "\n".join(parts)
