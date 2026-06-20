@@ -1,6 +1,6 @@
-# Version: 3.1.0
+# Version: 3.2.0
 # Date:    2026-06-20
-# Notes:   Longer retry waits + inter-call gap for hub_mcp 429 resilience
+# Notes:   haiku model + parallel MCP (5x) + log analysis + Veeam checks + current_value/corrected_config/doc_reference
 
 from __future__ import annotations
 import asyncio
@@ -51,12 +51,34 @@ MODULE_SCHEMA = """{
   "role": "ROLE_NAME",
   "servers": ["server_name"],
   "summary": "one-line overall assessment",
-  "config_findings": [{"severity":"CRITICAL|WARNING|INFO|OK","title":"...","detail":"...","recommendation":"...","servers":["..."]}],
+  "config_findings": [
+    {
+      "severity": "CRITICAL|WARNING|INFO|OK",
+      "title": "Short title",
+      "detail": "Explain what is wrong and why it matters",
+      "current_value": "Exact line(s) from the config file that are misconfigured, e.g. 'xpack.security.enabled: false'",
+      "corrected_config": "Ready-to-paste corrected config snippet with the exact parameter names and values",
+      "recommendation": "Actionable step to fix, referencing DataCore Swarm best practices when applicable",
+      "doc_reference": "DataCore documentation title or section that covers this setting, if found in the knowledge base",
+      "servers": ["server_name"]
+    }
+  ],
   "log_findings": []
 }"""
 
 CROSS_SCHEMA = """{
-  "cross_correlations": [{"severity":"CRITICAL|WARNING|INFO|OK","title":"...","detail":"...","recommendation":"...","servers":["...","..."]}]
+  "cross_correlations": [
+    {
+      "severity": "CRITICAL|WARNING|INFO|OK",
+      "title": "Short title",
+      "detail": "Explain the cross-component mismatch and its impact",
+      "current_value": "The conflicting values from each side, e.g. 'HAProxy maxconn=10000 vs GW threads=200'",
+      "corrected_config": "Corrected values for each affected component",
+      "recommendation": "How to align the components",
+      "doc_reference": "DataCore documentation title or section that covers this setting, if found in the knowledge base",
+      "servers": ["server_a", "server_b"]
+    }
+  ]
 }"""
 
 
@@ -224,6 +246,16 @@ def _server_summary(r: AuditResult) -> str:
     if r.es_cluster_name:
         lines.append(f"  ES cluster: {r.es_cluster_name}")
 
+    if r.logs:
+        lines.append("  APPLICATION LOGS (last 24h, deduplicated — format [xN] = N occurrences):")
+        for role_key, log_text in r.logs.items():
+            if log_text:
+                # Keep at most 3000 chars per role log to avoid token explosion
+                snippet = log_text[:3000]
+                if len(log_text) > 3000:
+                    snippet += f"\n  ... ({len(log_text) - 3000} more chars truncated)"
+                lines.append(f"    [{role_key} logs]\n{snippet}")
+
     return "\n".join(lines)
 
 
@@ -351,10 +383,6 @@ async def _analyze_role_group(
         if cancel_flag[0]:
             raise asyncio.CancelledError()
 
-        # Inter-call gap for hub_mcp to reduce burst 429s
-        if not want_direct:
-            await asyncio.sleep(5)
-
         # Build server summaries block
         server_summaries = "\n\n".join(_server_summary(r) for r in servers)
 
@@ -371,8 +399,27 @@ async def _analyze_role_group(
             "Analyze ONLY the configuration files provided — do not speculate about logs or runtime state.\n"
             "Return ONLY valid JSON — no text, no markdown, no code fences.\n"
             "Severity: CRITICAL (immediate risk), WARNING (should fix), INFO (observation), OK (correct).\n"
-            "Cite actual values from the config files. Minimum 2 findings. Include positive OK findings.\n"
-            "log_findings must be an empty array []."
+            "For every non-OK finding you MUST populate:\n"
+            "  current_value: quote the exact line(s) from the config file that are wrong.\n"
+            "  corrected_config: provide the exact replacement snippet ready to paste into the config file.\n"
+            "  doc_reference: if the SWARM KNOWLEDGE BASE contains a section covering this setting, cite the DataCore\n"
+            "    documentation page title and its likely URL on https://documentation.datacore.com/. Only cite if the\n"
+            "    knowledge base actually contains relevant content — do not invent URLs.\n"
+            "VEEAM USE-CASE: This cluster is used as a Veeam Backup & Replication S3 object storage target.\n"
+            "  For every role, explicitly check and report (even if OK) the Veeam-relevant settings:\n"
+            "  - HAProxy: session timeouts (must be >= 3600s for large Veeam jobs), maxconn sizing for concurrent backup jobs.\n"
+            "  - Content Gateway: S3 multipart upload limits, object size limits, connection pool for Veeam agents,\n"
+            "      immutability/object locking (required for Veeam Hardened Repository / SOBR immutable tier),\n"
+            "      allowSwarmAdminIP restriction (security requirement before prod use with Veeam).\n"
+            "  - Elasticsearch: index retention policy compatibility with Veeam metadata indexing if used.\n"
+            "  - LCS: RabbitMQ broker redundancy (single broker = risk during Veeam GFS restore operations).\n"
+            "  - Storage Nodes: replication factor vs. Veeam backup copy job RPO requirements.\n"
+            "LOG ANALYSIS: If APPLICATION LOGS are provided, analyze them and populate log_findings:\n"
+            "  - Report recurring errors or warnings (format [xN] means N occurrences — high counts = systemic issue).\n"
+            "  - Flag log patterns indicating performance issues, connection failures, or service instability.\n"
+            "  - Ignore purely informational/routine lines. Focus on errors, warnings, retries, timeouts.\n"
+            "  - If no logs provided or logs are clean, log_findings may be an empty array.\n"
+            "Minimum 3 findings per role. Include ALL checked config items as findings (OK or not)."
         )
 
         prompt = (
@@ -474,6 +521,11 @@ async def _run_synthesis(
         "  - Version skews, protocol mismatches, or topology gaps\n"
         "  - Recommendations from different roles that conflict with each other\n"
         "Do NOT repeat findings already covered in the per-role analyses. Only surface genuinely cross-cutting issues.\n"
+        "For every finding you MUST populate:\n"
+        "  current_value: the conflicting values from each component (server name + parameter = value).\n"
+        "  corrected_config: the aligned values to set on each affected component.\n"
+        "  doc_reference: DataCore documentation page title + URL on https://documentation.datacore.com/ if relevant.\n"
+        "    Only cite URLs you are confident exist — do not invent them.\n"
         "Return ONLY valid JSON — no text, no markdown, no code fences.\n"
         "Severity: CRITICAL (immediate risk), WARNING (should fix), INFO (observation)."
     )
@@ -557,8 +609,9 @@ async def run_analysis(
         raise asyncio.CancelledError()
 
     # ── 3. Phase 1: parallel role analysis ──────────────────────────────────
-    # Limit concurrency: hub_mcp is rate-limited (1), direct can do 3 in parallel
-    concurrency = 1 if want_hub_mcp else 3
+    # hub_mcp: 5 parallel MCP connections (haiku has no per-minute issue at this scale)
+    # direct: 5 parallel Anthropic API calls
+    concurrency = 5
     sem = asyncio.Semaphore(concurrency)
 
     if on_progress:

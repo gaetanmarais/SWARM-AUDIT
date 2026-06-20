@@ -182,7 +182,10 @@ class AnalysisFinding(BaseModel):
     severity: Literal["CRITICAL", "WARNING", "INFO", "OK"] = "INFO"
     title: str = ""
     detail: str = ""
+    current_value: str = ""      # exact misconfigured line(s) from the config file
+    corrected_config: str = ""   # ready-to-paste corrected config snippet
     recommendation: str = ""
+    doc_reference: str = ""      # DataCore/Swarm doc title or URL if available in RAG
     servers: list[str] = []
 
 
