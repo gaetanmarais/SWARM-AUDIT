@@ -2904,11 +2904,12 @@ function pollAnalysisStatus() {
       } else if (d.status === 'error' || d.status === 'cancelled') {
         badge.classList.add('hidden');
         clearInterval(analysisPollTimer);
-        const panel = document.getElementById('panel-analysis');
-        if (!panel.classList.contains('hidden')) loadAnalysis();
+        loadAnalysis();
       } else {
+        // idle — analysis never ran or no credentials
         badge.classList.add('hidden');
         clearInterval(analysisPollTimer);
+        if (d.error) loadAnalysis();  // show the "skipped" reason
       }
     } catch(e) { /* network blip, keep polling */ }
   }, 3000);

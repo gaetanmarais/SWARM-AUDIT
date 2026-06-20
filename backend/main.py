@@ -428,14 +428,24 @@ async def _do_analysis(results: list[AuditResult]) -> None:
 
     has_direct  = bool(anthropic_api_key)
     has_hub_mcp = bool(mcp_token)
+
+    def _abort(reason: str) -> None:
+        global _current_analysis
+        log.warning("Analysis skipped: %s", reason)
+        _current_analysis = AnalysisResult(
+            status="error", error=f"Analysis skipped: {reason}",
+            started_at=datetime.now(timezone.utc).isoformat(),
+            finished_at=datetime.now(timezone.utc).isoformat(),
+        )
+
     if not has_direct and not has_hub_mcp:
-        log.warning("No analysis credentials configured — skipping AI analysis")
+        _abort("no AI credentials configured — add Anthropic API key or Hub MCP token in Settings")
         return
     if analysis_backend == "direct" and not has_direct:
-        log.warning("Direct API mode selected but no Anthropic API key — skipping AI analysis")
+        _abort("Direct API mode selected but no Anthropic API key in Settings")
         return
     if analysis_backend == "hub_mcp" and not has_hub_mcp:
-        log.warning("Hub MCP mode selected but no MCP token — skipping AI analysis")
+        _abort("Hub MCP mode selected but no MCP token in Settings")
         return
 
     _analysis_cancel[0] = False
