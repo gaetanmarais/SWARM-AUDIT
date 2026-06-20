@@ -568,26 +568,25 @@ if [ -n "$GW_CONFIG_PATH" ]; then
                 | tr -d '[]' | tr '[:upper:]' '[:lower:]')
             continue
         fi
-        # Only process lines with these keywords (where node lists appear)
-        echo "$_line" | grep -qiE '\bhosts\b|\baddress\b|\bserver\b' || continue
+        # Process any key that carries an IP list (hosts, nodes, address, url, endpoint…)
+        echo "$_line" | grep -qiE '\b(hosts?|nodes?|address(es)?|servers?|endpoints?|peers?|ips?|url)\b' || continue
 
-        # Extract every IP or IP:port from the value — handles spaces AND commas
-        # as separators since grep -oE matches each token independently
+        # Extract every IP or IP:port from the value
         while IFS= read -r _ep; do
             [ -z "$_ep" ] && continue
             _raw="${_ep%%:*}"
             echo "$_raw" | grep -qE '^(127\.|0\.|255\.)' && continue
 
-            # Determine target list: section name first, then keyword fallback
+            # Determine target list: section name first, then key/value keyword fallback
             _target=""
             case "$_cur_sec" in
-                scsp|cluster|storage|proxy|castor) _target=cluster ;;
-                search|elasticsearch|indexer|es)   _target=es      ;;
-                listingcache|listing_cache|cache|redis|lcs) _target=lcs ;;
+                scsp|cluster|storage|proxy|castor|swarm|swarmproxy|storageproxy|storagecluster) _target=cluster ;;
+                search|elasticsearch|elastic|indexer|es|fulltext|full_text|searchengine)        _target=es      ;;
+                listingcache|listing_cache|cache|cacheserver|cache_server|redis|lcs|listing)    _target=lcs     ;;
                 *)
-                    if echo "$_line" | grep -qiE 'elasticsearch|es[._]host|search'; then
+                    if echo "$_line" | grep -qiE 'elasticsearch|es[._]host|search|elastic'; then
                         _target=es
-                    elif echo "$_line" | grep -qiE 'redis|listingcache|lcs'; then
+                    elif echo "$_line" | grep -qiE 'redis|listingcache|listing.cache|lcs|cache'; then
                         _target=lcs
                     else
                         _target=cluster   # default: Swarm storage hosts

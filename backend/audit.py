@@ -12,7 +12,7 @@ from typing import AsyncIterator, Optional
 
 import asyncssh
 
-from models import AuditResult, Credential, Server, DiscoveredServer, DiscoveryWave, DiscoveryRun
+from models import AuditResult, Credential, RoleDetection, Server, DiscoveredServer, DiscoveryWave, DiscoveryRun
 
 log = logging.getLogger(__name__)
 
@@ -353,6 +353,23 @@ async def run_audit_with_discovery(
             suffix = cand.ip.split(".")[-1]
             role_prefix = cand.hint_role.lower().replace("_", "-") or "node"
             srv = Server(name=f"{role_prefix}-{suffix}", ip=cand.ip, credential_id=None)
+
+            # CASTOR/storage nodes: create a stub entry — no SSH audit needed
+            if cand.hint_role == "CASTOR":
+                log.info("CASTOR stub %s — skipping SSH", cand.ip)
+                r = AuditResult(
+                    server_id=srv.id,
+                    server_name=srv.name,
+                    server_ip=cand.ip,
+                    success=True,
+                    roles=[RoleDetection(role="CASTOR", reason="discovered via gateway config")],
+                    is_discovered=True,
+                    discovered_source=cand.source,
+                )
+                if on_result:
+                    on_result(r)
+                return r
+
             if cand.jump_host_ip:
                 log.info("Probing %s via jump host %s", cand.ip, cand.jump_host_ip)
             r = await audit_server_with_fallback(
