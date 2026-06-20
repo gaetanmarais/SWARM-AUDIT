@@ -2774,6 +2774,18 @@ function _setupSvgPan() {
   }, true);
 }
 
+// ─── Tab navigation ───────────────────────────────────────────────────────────
+const TABS = ['diagram', 'results', 'analysis', 'discovery', 'servers', 'credentials'];
+function showTab(name) {
+  TABS.forEach(t => {
+    document.getElementById('panel-' + t)?.classList.toggle('hidden', t !== name);
+    document.getElementById('tab-' + t)?.classList.toggle('active', t === name);
+  });
+  if (name === 'discovery') loadDiscovery();
+  if (name === 'servers')   renderServers();
+  if (name === 'credentials') renderCredentials();
+}
+
 // ─── Theme toggle ─────────────────────────────────────────────────────────────
 function toggleTheme() {
   const isLight = document.body.classList.toggle('light');
