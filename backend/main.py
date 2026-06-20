@@ -42,7 +42,19 @@ CREDENTIALS_FILE = DATA_DIR / "credentials.json"  # credentials (secrets — nev
 FRONTEND_DIR     = _APP_ROOT / "frontend"
 DUMPS_DIR        = DATA_DIR / "dumps"
 
-APP_VERSION = "2.0.0"
+def _git_hash() -> str:
+    try:
+        import subprocess
+        return subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=Path(__file__).parent,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except Exception:
+        return "unknown"
+
+APP_VERSION = _git_hash()
 app = FastAPI(title="ARCIS-SWARM", version=APP_VERSION)
 
 # Cache for Tailwind CDN script — fetched once per process lifetime

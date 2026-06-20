@@ -627,8 +627,21 @@ if [ -z "$GW_CONFIG_PATH" ]; then
 fi
 
 if [ -n "$GW_CONFIG_PATH" ]; then
+    echo "[arcis] GW config: $GW_CONFIG_PATH" >&2
     _cur_sec=""
     _gw_cluster=""; _gw_es=""; _gw_lcs=""
+
+    _gw_add() {
+        local _ep="$1" _target="$2"
+        local _raw="${_ep%%:*}"
+        echo "$_raw" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}$' || return
+        echo "$_raw" | grep -qE '^(127\.|0\.|255\.)' && return
+        case "$_target" in
+            cluster) [ -n "$_gw_cluster" ] && _gw_cluster="${_gw_cluster},"; _gw_cluster="${_gw_cluster}\"${_ep}\"" ;;
+            es)      [ -n "$_gw_es" ]      && _gw_es="${_gw_es},";           _gw_es="${_gw_es}\"${_ep}\""           ;;
+            lcs)     [ -n "$_gw_lcs" ]     && _gw_lcs="${_gw_lcs},";         _gw_lcs="${_gw_lcs}\"${_ep}\""         ;;
+        esac
+    }
 
     while IFS= read -r _line; do
         _line="${_line%%#*}"   # strip inline comments
@@ -638,43 +651,43 @@ if [ -n "$GW_CONFIG_PATH" ]; then
                 | tr -d '[]' | tr '[:upper:]' '[:lower:]')
             continue
         fi
-        # Process any key that carries an IP list (hosts, nodes, address, url, endpoint…)
-        echo "$_line" | grep -qiE '\b(hosts?|nodes?|address(es)?|servers?|endpoints?|peers?|ips?|url)\b' || continue
+        # Must contain at least one IP address
+        echo "$_line" | grep -qE '([0-9]{1,3}\.){3}[0-9]{1,3}' || continue
 
-        # Extract every IP or IP:port from the value
-        while IFS= read -r _ep; do
-            [ -z "$_ep" ] && continue
-            _raw="${_ep%%:*}"
-            echo "$_raw" | grep -qE '^(127\.|0\.|255\.)' && continue
-
-            # Determine target list: section name first, then key/value keyword fallback
-            _target=""
-            case "$_cur_sec" in
-                scsp|cluster|storage|proxy|castor|swarm|swarmproxy|storageproxy|storagecluster) _target=cluster ;;
-                search|elasticsearch|elastic|indexer|es|fulltext|full_text|searchengine)        _target=es      ;;
-                listingcache|listing_cache|cache|cacheserver|cache_server|redis|lcs|listing)    _target=lcs     ;;
-                *)
-                    if echo "$_line" | grep -qiE 'elasticsearch|es[._]host|search|elastic'; then
-                        _target=es
-                    elif echo "$_line" | grep -qiE 'redis|listingcache|listing.cache|lcs|cache'; then
-                        _target=lcs
-                    else
-                        _target=cluster   # default: Swarm storage hosts
-                    fi
-                    ;;
-            esac
-
-            case "$_target" in
-                cluster) [ -n "$_gw_cluster" ] && _gw_cluster="${_gw_cluster},"; _gw_cluster="${_gw_cluster}\"${_ep}\"" ;;
-                es)      [ -n "$_gw_es" ]      && _gw_es="${_gw_es},";           _gw_es="${_gw_es}\"${_ep}\""           ;;
-                lcs)     [ -n "$_gw_lcs" ]     && _gw_lcs="${_gw_lcs},";         _gw_lcs="${_gw_lcs}\"${_ep}\""         ;;
-            esac
-        done < <(echo "$_line" | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}(:[0-9]+)?' || true)
+        # Known sections: extract ALL IPs regardless of key name
+        case "$_cur_sec" in
+            scsp|cluster|storage|proxy|castor|swarm|swarmproxy|storageproxy|storagecluster)
+                while IFS= read -r _ep; do _gw_add "$_ep" cluster; done \
+                    < <(echo "$_line" | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}(:[0-9]+)?' || true)
+                ;;
+            search|elasticsearch|elastic|indexer|es|fulltext|full_text|searchengine)
+                while IFS= read -r _ep; do _gw_add "$_ep" es; done \
+                    < <(echo "$_line" | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}(:[0-9]+)?' || true)
+                ;;
+            listingcache|listing_cache|cache|cacheserver|cache_server|redis|lcs|listing)
+                while IFS= read -r _ep; do _gw_add "$_ep" lcs; done \
+                    < <(echo "$_line" | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}(:[0-9]+)?' || true)
+                ;;
+            *)
+                # Unknown section: use key/value keywords to classify
+                _target=""
+                if echo "$_line" | grep -qiE 'elasticsearch|es[._]host|search|elastic'; then
+                    _target=es
+                elif echo "$_line" | grep -qiE 'redis|listingcache|listing.cache|lcs|cache'; then
+                    _target=lcs
+                elif echo "$_line" | grep -qiE 'hosts?|nodes?|address|servers?|endpoint|entry|backend'; then
+                    _target=cluster
+                fi
+                [ -n "$_target" ] && while IFS= read -r _ep; do _gw_add "$_ep" "$_target"; done \
+                    < <(echo "$_line" | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}(:[0-9]+)?' || true)
+                ;;
+        esac
     done < "$GW_CONFIG_PATH"
 
     [ -n "$_gw_cluster" ] && GW_CLUSTER_IPS="[${_gw_cluster}]"
     [ -n "$_gw_es" ]      && GW_ES_IPS="[${_gw_es}]"
     [ -n "$_gw_lcs" ]     && GW_LCS_IPS="[${_gw_lcs}]"
+    echo "[arcis] GW parse done — cluster=${GW_CLUSTER_IPS} es=${GW_ES_IPS} lcs=${GW_LCS_IPS}" >&2
 fi
 
 # ─── Discovery: Storage nodes via swarmctl ─────────────────────────────────────
