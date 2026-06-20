@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Version: 2.16.0
+# Version: 2.17.0
 # Date:    2026-06-20
-# Notes:   SCS: inject scsctl storage/platform config show -d into config_contents.
+# Notes:   TELEMETRY: detect alertmanager, add alertmanager config paths.
 
 set -euo pipefail
 
@@ -257,6 +257,11 @@ if proc_running "grafana" || proc_running "grafana-server" \
    || port_listening 3000; then
     _telemetry_reason="${_telemetry_reason:+${_telemetry_reason}+}grafana"
 fi
+if proc_running "alertmanager" || svc_active "alertmanager" \
+   || file_exists /etc/alertmanager/alertmanager.yml \
+   || port_listening 9093; then
+    _telemetry_reason="${_telemetry_reason:+${_telemetry_reason}+}alertmanager"
+fi
 [ -n "$_telemetry_reason" ] && add_role "TELEMETRY" "process/svc:${_telemetry_reason}"
 
 # ─── UNKNOWN fallback ────────────────────────────────────────────────────────
@@ -386,6 +391,8 @@ _cfg_paths+=(
     /etc/prometheus/prometheus.yml
     /etc/alertmanager/alertmanager.yml
     /etc/prometheus/alertmanager.yml
+    /etc/alertmanager/alertmanager.yaml
+    /opt/alertmanager/alertmanager.yml
     /etc/grafana/grafana.ini
 )
 # Prometheus alert/recording rules — glob-collected (may be multiple files)

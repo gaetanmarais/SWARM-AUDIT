@@ -1,6 +1,6 @@
-# Version: 3.2.0
+# Version: 3.3.0
 # Date:    2026-06-20
-# Notes:   haiku model + parallel MCP (5x) + log analysis + Veeam checks + current_value/corrected_config/doc_reference
+# Notes:   TELEMETRY role + Prometheus/Alertmanager deep analysis (coverage, thresholds, routing)
 
 from __future__ import annotations
 import asyncio
@@ -43,7 +43,7 @@ _ALL_RAG_INDICES = list(range(len(RAG_QUERIES)))
 
 ROLE_RAG_MAP: dict[str, list[int]] = {role: _ALL_RAG_INDICES for role in (
     "HAPROXY", "CONTENT_GATEWAY", "ELASTICSEARCH", "CASTOR", "STORAGE_NODE",
-    "LISTING_CACHE", "LISTING_CACHE_SERVER", "SCS", "UNKNOWN",
+    "LISTING_CACHE", "LISTING_CACHE_SERVER", "SCS", "TELEMETRY", "UNKNOWN",
 )}
 _DEFAULT_RAG_INDICES = _ALL_RAG_INDICES
 
@@ -405,6 +405,17 @@ async def _analyze_role_group(
             "  doc_reference: if the SWARM KNOWLEDGE BASE contains a section covering this setting, cite the DataCore\n"
             "    documentation page title and its likely URL on https://documentation.datacore.com/. Only cite if the\n"
             "    knowledge base actually contains relevant content — do not invent URLs.\n"
+            "TELEMETRY ROLE (Prometheus / Grafana / Alertmanager): When analyzing a TELEMETRY role, you MUST:\n"
+            "  1. WHAT IS MONITORED: List every scrape job (job_name + targets) from prometheus.yml.\n"
+            "     For each Swarm component (HAProxy, Gateway, ES, LCS, SCS, Storage nodes, RabbitMQ),\n"
+            "     state explicitly whether it is scraped or NOT scraped — missing coverage is a WARNING or CRITICAL.\n"
+            "  2. ALERT RULES: For every alert rule file found, list each rule with its expr, 'for' duration,\n"
+            "     and threshold values. Flag missing essential Swarm alerts (disk full, ES red, node down,\n"
+            "     replication lag, LCS broker failure, HAProxy backend down).\n"
+            "  3. ALERT ROUTING: Analyze alertmanager.yml — identify all receivers (email, PagerDuty, Slack,\n"
+            "     webhook, etc.), routing tree, group_wait/group_interval/repeat_interval, and inhibit rules.\n"
+            "     State explicitly HOW alerts reach the on-call team and whether critical alerts have a dedicated route.\n"
+            "  4. GAPS: Explicitly call out components that have NO alert rule coverage — even if they are scraped.\n"
             "VEEAM USE-CASE: This cluster is used as a Veeam Backup & Replication S3 object storage target.\n"
             "  For every role, explicitly check and report (even if OK) the Veeam-relevant settings:\n"
             "  - HAProxy: session timeouts (must be >= 3600s for large Veeam jobs), maxconn sizing for concurrent backup jobs.\n"
