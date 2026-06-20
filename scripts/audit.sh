@@ -542,9 +542,19 @@ GW_LCS_IPS="[]"        # [listingcache] / [cache] → Redis/LCS nodes
 for _f in \
     /etc/caringo/cloudgateway/gateway.cfg \
     /etc/caringo/cloudgateway/cloudgateway.cfg \
-    /opt/caringo/cloudgateway/conf/gateway.cfg; do
+    /opt/caringo/cloudgateway/conf/gateway.cfg \
+    /etc/datacore/gateway/gateway.cfg \
+    /etc/datacore/cloudgateway/gateway.cfg \
+    /opt/datacore/cloudgateway/gateway.cfg \
+    /opt/datacore/cloudgateway/conf/gateway.cfg \
+    /etc/swarm/gateway/gateway.cfg \
+    /etc/swarm/cloudgateway/gateway.cfg; do
     [ -f "$_f" ] && { GW_CONFIG_PATH="$_f"; break; }
 done
+# Fallback: search common prefixes for any gateway.cfg
+if [ -z "$GW_CONFIG_PATH" ]; then
+    GW_CONFIG_PATH=$(find /etc /opt -maxdepth 6 -name "gateway.cfg" 2>/dev/null | head -1 || true)
+fi
 
 if [ -n "$GW_CONFIG_PATH" ]; then
     _cur_sec=""

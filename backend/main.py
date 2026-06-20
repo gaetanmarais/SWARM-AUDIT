@@ -333,14 +333,17 @@ async def discover_results():
     """Return discovered servers from the last audit (is_discovered=True results) + discovery signals."""
     results = _get_audit_results()
     discovered = [r for r in results if r.is_discovered]
-    # signals: what discovery data each seed server exposed
+    # signals: discovery data from ALL successfully audited servers (seeds + discovered)
     signals = [
         {
             "ip": r.server_ip,
             "name": r.server_name,
+            "is_discovered": r.is_discovered,
+            "discovered_source": r.discovered_source,
             "roles": [role.role for role in r.roles],
             "keepalived_peers": r.keepalived_peers,
             "haproxy_backends": [{"ip": b.ip, "port": b.port, "name": b.name} for b in r.haproxy_backends],
+            "gw_config_path": r.gw_config_path,
             "gw_cluster_ips": r.gw_cluster_ips,
             "gw_es_ips": r.gw_es_ips,
             "gw_lcs_ips": r.gw_lcs_ips,
@@ -349,7 +352,7 @@ async def discover_results():
             "es_seed_hosts": r.es_seed_hosts,
         }
         for r in results
-        if not r.is_discovered and r.success
+        if r.success
     ]
     return {
         "total_discovered": len(discovered),

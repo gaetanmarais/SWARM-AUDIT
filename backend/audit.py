@@ -231,10 +231,22 @@ async def run_audit_with_discovery(
                     candidates.append(cand)
 
         if not candidates:
+            # Log what fields each wave result had, to help diagnose empty discovery
+            for r in wave_results:
+                if r.success:
+                    log.info(
+                        "Discovery wave %d — %s (%s): keepalived=%d ha_backends=%d "
+                        "gw_cluster=%d gw_es=%d gw_lcs=%d ntp=%d syslog=%d es_seed=%d",
+                        wave, r.server_ip, r.server_name,
+                        len(r.keepalived_peers), len(r.haproxy_backends),
+                        len(r.gw_cluster_ips), len(r.gw_es_ips), len(r.gw_lcs_ips),
+                        len(r.ntp_client_servers), len(r.syslog_targets), len(r.es_seed_hosts),
+                    )
             log.info("Discovery wave %d: no new candidates — stopping", wave)
             break
 
-        log.info("Discovery wave %d: %d new IPs to probe", wave, len(candidates))
+        log.info("Discovery wave %d: %d new IPs to probe — %s", wave, len(candidates),
+                 [c.ip for c in candidates])
         source_map = {c.ip: c for c in candidates}
 
         async def _disc_task(cand: DiscoveredServer) -> AuditResult:
