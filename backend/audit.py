@@ -1,6 +1,6 @@
-# Version: 2.2.0
+# Version: 2.3.0
 # Date:    2026-06-20
-# Notes:   Discovery waves try default cred first, then all others on SSH failure
+# Notes:   SSH connect wrapped in short timeout; all creds tried for seeds too; no retry on timeout
 
 from __future__ import annotations
 import asyncio
@@ -17,7 +17,8 @@ log = logging.getLogger(__name__)
 
 SCRIPT_PATH = Path(__file__).parent.parent / "scripts" / "audit.sh"
 REMOTE_SCRIPT = "/tmp/_arcis_audit.sh"
-TIMEOUT = 600  # seconds per host — GW/SCS collect healthreport per storage node (≈47s×N max)
+SSH_CONNECT_TIMEOUT = 20   # seconds — TCP connect + SSH handshake + auth
+SCRIPT_TIMEOUT     = 600   # seconds — script execution (GW/SCS can be slow)
 
 
 async def audit_server(
@@ -37,7 +38,7 @@ async def audit_server(
             "port": credential.port,
             "username": credential.username,
             "known_hosts": None,
-            "connect_timeout": 15,
+            "connect_timeout": SSH_CONNECT_TIMEOUT,
         }
         if credential.private_key:
             connect_kwargs["client_keys"] = [
@@ -48,7 +49,18 @@ async def audit_server(
         else:
             raise ValueError("Credential has neither password nor private_key")
 
-        async with asyncssh.connect(**connect_kwargs) as conn:
+        # Wrap the entire connect+auth in a hard timeout — asyncssh connect_timeout
+        # only covers TCP; auth can still hang indefinitely on some setups.
+        try:
+            conn_ctx = await asyncio.wait_for(
+                asyncssh.connect(**connect_kwargs),
+                timeout=SSH_CONNECT_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            base.error = f"SSH connect timeout after {SSH_CONNECT_TIMEOUT}s"
+            return base
+
+        async with conn_ctx as conn:
             script_content = SCRIPT_PATH.read_bytes()
 
             async with conn.start_sftp_client() as sftp:
@@ -58,7 +70,7 @@ async def audit_server(
 
             result = await asyncio.wait_for(
                 conn.run(f"bash {REMOTE_SCRIPT}", check=False),
-                timeout=TIMEOUT,
+                timeout=SCRIPT_TIMEOUT,
             )
             await conn.run(f"rm -f {REMOTE_SCRIPT}", check=False)
 
@@ -128,7 +140,7 @@ async def audit_server(
             )
 
     except asyncio.TimeoutError:
-        base.error = f"Timeout after {TIMEOUT}s"
+        base.error = f"Script timeout after {SCRIPT_TIMEOUT}s"
     except asyncssh.Error as e:
         base.error = f"SSH error: {e}"
     except Exception as e:
@@ -138,23 +150,37 @@ async def audit_server(
     return base
 
 
+_SSH_RETRY_ERRORS = (
+    "SSH error", "Permission denied", "Authentication failed",
+    "No credential", "connect timeout",
+)
+_NO_RETRY_ERRORS = ("Script timeout", "Script exit", "JSON parse")
+
 async def audit_server_with_fallback(
     server: Server,
     ordered_creds: list[Credential],
 ) -> AuditResult:
-    """Try credentials in order; return the first successful result or the last failure."""
+    """
+    Try credentials in order (default first).
+    Retry only on SSH/auth errors — never on script timeout or script errors,
+    and never on SSH connect timeout (host unreachable, not a wrong-password issue).
+    """
     last: Optional[AuditResult] = None
     for cred in ordered_creds:
+        log.debug("Trying cred '%s' on %s", cred.name, server.ip)
         r = await audit_server(server, cred)
         if r.success:
             return r
-        # Only retry on auth/connection failure, not on script errors
         last = r
-        if r.error and not any(
-            kw in (r.error or "") for kw in ("SSH error", "Permission denied", "Authentication failed", "No credential")
-        ):
-            # Script ran but returned an error — don't retry with another cred
+        err = r.error or ""
+        if any(kw in err for kw in _NO_RETRY_ERRORS):
+            # Script ran (auth succeeded) but script itself failed — no point retrying
             return r
+        if "connect timeout" in err:
+            # Host is unreachable — no point trying other creds
+            return r
+        # SSH auth failure → try next credential
+        log.info("Cred '%s' failed on %s (%s) — trying next", cred.name, server.ip, err[:60])
     return last or AuditResult(
         server_id=server.id, server_name=server.name, server_ip=server.ip,
         success=False, error="No credential available",
@@ -167,22 +193,35 @@ async def run_audit(
     on_result=None,
 ) -> list[AuditResult]:
     """
-    Audit all servers concurrently.  Results are appended to the shared list as
-    each SSH session completes (fastest-first).  on_result(result) is called
-    after each node so callers can update live state.
+    Audit all servers concurrently.  For each server: try the assigned credential
+    first (if set), then default, then all others.  Fastest-first via gather.
     """
-    cred_map = {c.id: c for c in credentials}
+    cred_map   = {c.id: c for c in credentials}
     default_cred = next((c for c in credentials if c.is_default), None)
 
+    def _ordered_creds(srv: Server) -> list[Credential]:
+        """Build fallback list: assigned → default → rest, deduped, no None."""
+        seen_ids: set[str] = set()
+        result: list[Credential] = []
+        for c in [
+            cred_map.get(srv.credential_id or ""),
+            default_cred,
+            *[c for c in credentials if not c.is_default],
+        ]:
+            if c and c.id not in seen_ids:
+                seen_ids.add(c.id)
+                result.append(c)
+        return result
+
     async def _task(srv: Server) -> AuditResult:
-        cred = cred_map.get(srv.credential_id or "") or default_cred
-        if not cred:
+        creds = _ordered_creds(srv)
+        if not creds:
             r = AuditResult(
                 server_id=srv.id, server_name=srv.name, server_ip=srv.ip,
                 success=False, error="No credential available",
             )
         else:
-            r = await audit_server(srv, cred)
+            r = await audit_server_with_fallback(srv, creds)
         if on_result:
             on_result(r)
         return r
