@@ -1,6 +1,9 @@
 services:
   arcis-swarm:
-    build: .
+    build:
+      context: .
+      args:
+        GIT_HASH: ${GIT_HASH:-unknown}
     container_name: arcis-swarm
     restart: unless-stopped
     ports:

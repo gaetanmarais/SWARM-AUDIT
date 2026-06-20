@@ -43,7 +43,14 @@ FRONTEND_DIR     = _APP_ROOT / "frontend"
 DUMPS_DIR        = DATA_DIR / "dumps"
 
 def _git_hash() -> str:
-    # Try subprocess (dev / host with git)
+    # 1. version.txt written by Dockerfile at build time (GIT_HASH build arg)
+    try:
+        v = (Path(__file__).parent / "version.txt").read_text().strip()
+        if v and v != "unknown":
+            return v
+    except Exception:
+        pass
+    # 2. subprocess git (dev environment with git installed)
     try:
         import subprocess
         h = subprocess.check_output(
@@ -55,7 +62,7 @@ def _git_hash() -> str:
             return h
     except Exception:
         pass
-    # Fallback: read .git/HEAD directly (works in containers without git binary)
+    # 3. Read .git/HEAD directly (no git binary needed)
     try:
         git_dir = Path(__file__).parent.parent / ".git"
         head = (git_dir / "HEAD").read_text().strip()
