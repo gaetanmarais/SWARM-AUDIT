@@ -765,12 +765,22 @@ function _resultCardHtml(res) {
 let _discStorageCache = [];
 
 async function loadResults() {
-  const r = await fetch(API+'/api/audit/results');
-  const results = await r.json();
-  _auditResultsCache = results;
-
   const el = document.getElementById('results-list');
-  if (!results.length) {
+  let results;
+  try {
+    const r = await fetch(API+'/api/audit/results');
+    if (!r.ok) {
+      el.innerHTML = `<p class="text-red-400 text-sm">API error ${r.status}: ${await r.text()}</p>`;
+      return;
+    }
+    results = await r.json();
+  } catch(e) {
+    el.innerHTML = `<p class="text-red-400 text-sm">Failed to load results: ${e}</p>`;
+    return;
+  }
+  _auditResultsCache = Array.isArray(results) ? results : [];
+
+  if (!_auditResultsCache.length) {
     el.innerHTML = '<p class="text-slate-500 text-sm">No audit results yet.</p>';
     return;
   }

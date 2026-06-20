@@ -275,7 +275,14 @@ async def _do_audit(audit_run: AuditRun, inv: Inventory) -> None:
         audit_run.status = "error"
     finally:
         audit_run.finished_at = datetime.now(timezone.utc).isoformat()
-        # Persist per-node JSON dumps so SVG links can serve them
+        log.info("Audit %s — status=%s results=%d", audit_run.id, audit_run.status, len(audit_run.results))
+
+        # _current_audit already points to audit_run (set at POST time).
+        # Trigger analysis immediately — don't wait for disk writes.
+        if audit_run.status == "done" and audit_run.results:
+            asyncio.create_task(_do_analysis(audit_run.results))
+
+        # Persist per-node JSON dumps (best-effort)
         DUMPS_DIR.mkdir(exist_ok=True)
         for result in audit_run.results:
             safe_id = re.sub(r"[^\w-]", "-", result.server_id)
@@ -285,7 +292,6 @@ async def _do_audit(audit_run: AuditRun, inv: Inventory) -> None:
                 )
             except Exception:
                 log.warning("Failed to save dump for %s", result.server_id)
-        # Also save per-discovered-storage-node dumps (healthreport data)
         for result in audit_run.results:
             for sn in result.discovered_storage_nodes:
                 sn_safe_id = re.sub(r"[^\w-]", "-", f"disc-storage-{sn.ip}")
@@ -295,13 +301,12 @@ async def _do_audit(audit_run: AuditRun, inv: Inventory) -> None:
                     )
                 except Exception:
                     log.warning("Failed to save storage dump for %s", sn.ip)
-        inv2 = load_inventory()
-        inv2.last_audit = audit_run
-        save_inventory(inv2)
-        _current_audit = audit_run
-        # Trigger AI analysis asynchronously once audit data is saved
-        if audit_run.status == "done" and audit_run.results:
-            asyncio.create_task(_do_analysis(audit_run.results))
+        try:
+            inv2 = load_inventory()
+            inv2.last_audit = audit_run
+            save_inventory(inv2)
+        except Exception:
+            log.exception("Failed to persist audit to inventory.json")
 
 
 def _get_audit_results() -> list[AuditResult]:

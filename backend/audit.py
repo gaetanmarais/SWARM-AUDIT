@@ -380,12 +380,14 @@ async def run_audit_with_discovery(
             role_prefix = cand.hint_role.lower().replace("_", "-") or "node"
             srv = Server(name=f"{role_prefix}-{suffix}", ip=cand.ip, credential_id=None)
 
-            if cand.hint_role == "CASTOR":
-                _dlog(f"  {cand.ip}: CASTOR stub — no SSH")
+            # Only skip SSH for nodes explicitly confirmed as storage by swarmctl
+            # (source="swarmctl_storage"). gw_cluster_ips may contain ES/LCS nodes.
+            if cand.source == "swarmctl_storage":
+                _dlog(f"  {cand.ip}: CASTOR stub (swarmctl-confirmed) — no SSH")
                 r = AuditResult(
                     server_id=srv.id, server_name=srv.name, server_ip=cand.ip,
                     success=True,
-                    roles=[RoleDetection(role="CASTOR", reason="discovered via gateway config")],
+                    roles=[RoleDetection(role="CASTOR", reason="swarmctl-confirmed storage node")],
                     is_discovered=True, discovered_source=cand.source,
                 )
                 if on_result:
