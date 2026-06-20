@@ -361,6 +361,25 @@ async def analysis_results():
     return AnalysisResult()
 
 
+@app.post("/api/analysis/run")
+async def retry_analysis():
+    """Re-run AI analysis on the last audit results without re-auditing servers."""
+    global _current_analysis
+    if _current_analysis and _current_analysis.status == "running":
+        raise HTTPException(409, "Analysis already running")
+    results: list[AuditResult] = []
+    if _current_audit and _current_audit.results:
+        results = _current_audit.results
+    else:
+        inv = load_inventory()
+        if inv.last_audit:
+            results = inv.last_audit.results
+    if not results:
+        raise HTTPException(404, "No audit results to analyze")
+    asyncio.create_task(_do_analysis(results))
+    return {"ok": True, "message": "Analysis started"}
+
+
 @app.delete("/api/analysis")
 async def cancel_analysis():
     global _analysis_cancel

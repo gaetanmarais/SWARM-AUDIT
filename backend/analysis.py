@@ -116,11 +116,12 @@ def _mcp_call_sync(mcp_url: str, token: str, tool: str, arguments: dict) -> dict
 
 
 def _ask_claude_with_retry(
-    mcp_url: str, token: str, arguments: dict, max_attempts: int = 6
+    mcp_url: str, token: str, arguments: dict, max_attempts: int = 3
 ) -> dict:
-    """Call ask_claude with exponential backoff on 429 rate-limit errors."""
-    # Delays: 60s, 90s, 120s, 180s, 240s between attempts
-    waits = [60, 90, 120, 180, 240]
+    """Call ask_claude with exponential backoff on 429 rate-limit errors.
+    Fail fast: 3 attempts max, waits [30s, 60s] — total <2min before giving up.
+    """
+    waits = [30, 60, 90]
     for attempt in range(max_attempts):
         resp = _mcp_call_sync(mcp_url, token, "ask_claude", arguments)
         if not resp:

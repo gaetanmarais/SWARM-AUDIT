@@ -2751,6 +2751,15 @@ async function cancelAnalysis() {
   clearInterval(analysisPollTimer);
 }
 
+async function retryAnalysis() {
+  const r = await fetch(API+'/api/analysis/run', {method:'POST'});
+  if (!r.ok) { alert('Could not start analysis: ' + await r.text()); return; }
+  const badge = document.getElementById('analysis-badge');
+  badge.classList.remove('hidden');
+  document.getElementById('analysis-badge-text').textContent = 'Analysis in progress…';
+  pollAnalysisStatus();
+}
+
 async function loadAnalysis() {
   const r = await fetch(API+'/api/analysis/results');
   if (!r.ok) return;
@@ -2774,7 +2783,16 @@ function renderAnalysis(data) {
     if (data.status === 'running') {
       idle.textContent = 'Analysis in progress… please wait.';
     } else if (data.status === 'error') {
-      idle.innerHTML = '<span class="text-red-400">Analysis failed: ' + (data.error || 'unknown error') + '</span>';
+      const isRateLimit = (data.error || '').includes('429') || (data.error || '').includes('rate_limit');
+      const errLabel = isRateLimit ? 'Rate limited (Anthropic API 429)' : ('Analysis failed: ' + (data.error || 'unknown error'));
+      idle.innerHTML = `<div class="flex flex-col items-center gap-3">
+        <span class="text-red-400">${errLabel}</span>
+        <button onclick="retryAnalysis()" class="btn btn-ghost text-xs px-3 py-1 border border-purple-700 text-purple-300 hover:text-white">
+          Retry Analysis
+        </button>
+      </div>`;
+    } else if (data.status === 'idle') {
+      idle.innerHTML = 'Analysis will run automatically after the next audit. Run an audit to generate AI findings.';
     }
     return;
   }
