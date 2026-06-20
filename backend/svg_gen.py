@@ -63,6 +63,20 @@ ROLE_SHORT: dict[str, str] = {
     "UNKNOWN":              "?",
 }
 
+# Feature badges: (AuditResult field, short label, fill color)
+FEATURE_BADGES: list[tuple[str, str, str]] = [
+    ("is_ntp_server",    "NTP",     "#0ea5e9"),
+    ("is_dhcp_server",   "DHCP",    "#f97316"),
+    ("is_pxe_server",    "TFTP",    "#d97706"),
+    ("is_syslog_server", "SYSLOG",  "#6b7280"),
+    ("is_rabbitmq",      "RABBIT",  "#f59e0b"),
+    ("is_prometheus",    "PROM",    "#e11d48"),
+    ("is_alertmanager",  "ALERT",   "#dc2626"),
+    ("is_grafana",       "GRAFANA", "#f97316"),
+    ("is_content_ui",    "CONT-UI", "#06b6d4"),
+    ("is_storage_ui",    "STO-UI",  "#14b8a6"),
+]
+
 LAYER_LABELS: dict[int, str] = {
     0: "HA — Load Balancer",
     1: "SCS / CSN",
@@ -81,7 +95,7 @@ SUBNET_PALETTE = [
 
 # ─── Tile layout ──────────────────────────────────────────────────────────────
 NODE_W          = 280
-NODE_H          = 160     # +5px vs before to accommodate badges
+NODE_H          = 175     # extra height for feature badge row
 ROLE_STRIP_W    = 58
 LEFT_BTN_W      = 40
 BODY_W          = NODE_W - ROLE_STRIP_W
@@ -1090,6 +1104,31 @@ def generate_svg(results: list[AuditResult], collected_at: str = "", build: str 
             f'fill="#f1f5f9" font-size="14" font-weight="bold" font-family="{FONT}">'
             f'{_esc(name_str)}</text>'
         )
+
+        # 4b. Feature badges (NTP, DHCP, PROM, GRAFANA …)
+        feat_active = [
+            (label, col) for (field, label, col) in FEATURE_BADGES
+            if getattr(r, field, False)
+        ]
+        if feat_active:
+            BW, BH, BGAP = 36, 11, 3   # badge width, height, gap
+            per_row = max(1, (INNER_BODY_W - 16) // (BW + BGAP))
+            rows = [feat_active[i:i+per_row] for i in range(0, min(len(feat_active), per_row*2), per_row)]
+            for ri, row in enumerate(rows):
+                total_w = len(row) * BW + (len(row) - 1) * BGAP
+                bx0 = body_cx - total_w // 2
+                by  = y + 100 + ri * (BH + 3)
+                for fi, (label, col) in enumerate(row):
+                    bx = bx0 + fi * (BW + BGAP)
+                    parts.append(
+                        f'  <rect x="{bx}" y="{by}" width="{BW}" height="{BH}" '
+                        f'rx="3" fill="{col}" fill-opacity="0.82"/>'
+                    )
+                    parts.append(
+                        f'  <text x="{bx + BW//2}" y="{by + 8}" text-anchor="middle" '
+                        f'fill="#fff" font-size="6.5" font-weight="bold" font-family="{FONT}">'
+                        f'{_esc(label)}</text>'
+                    )
 
         # 5. Storage node capacity bar
         sn_data = swarmctl_lookup.get(r.server_id)

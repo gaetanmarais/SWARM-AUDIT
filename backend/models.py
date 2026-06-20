@@ -154,11 +154,17 @@ class AuditResult(BaseModel):
     es_node_stats: str = ""       # _nodes/stats/indices/search,indexing (JSON)
     es_cat_alloc: str = ""        # _cat/allocation?v
     es_disk_info: Optional[dict] = None  # ES data disk type + latency
-    # Infrastructure service roles (set by audit script on the node that runs the service)
+    # Infrastructure service flags — set regardless of primary role; shown as tile badges
     is_syslog_server: bool = False
     is_ntp_server: bool = False
     is_dhcp_server: bool = False
     is_pxe_server: bool = False
+    is_rabbitmq: bool = False
+    is_prometheus: bool = False
+    is_alertmanager: bool = False
+    is_grafana: bool = False
+    is_content_ui: bool = False
+    is_storage_ui: bool = False
     # Discovery: where this node points for time sync and log forwarding
     ntp_client_servers: list[str] = []   # NTP server IPs configured on this node
     syslog_targets: list[str] = []       # Remote syslog forwarding targets

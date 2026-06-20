@@ -282,12 +282,18 @@ if [ "$ROLES" = "[]" ]; then
     add_role "UNKNOWN" "no known Swarm component fingerprint detected"
 fi
 
-# ─── Infrastructure service detection (syslog / NTP / DHCP / PXE) ────────────
-# These flags are set regardless of role; the SCS node typically runs all four.
+# ─── Infrastructure service detection ────────────────────────────────────────
+# Flags set regardless of main role — shown as feature badges on the diagram tile.
 IS_SYSLOG_SERVER=false
 IS_NTP_SERVER=false
 IS_DHCP_SERVER=false
 IS_PXE_SERVER=false
+IS_RABBITMQ=false
+IS_PROMETHEUS=false
+IS_ALERTMANAGER=false
+IS_GRAFANA=false
+IS_CONTENT_UI=false
+IS_STORAGE_UI=false
 
 if proc_running rsyslogd || proc_running syslogd || proc_running_f "syslog-ng" \
    || svc_active rsyslog || svc_active "syslog-ng" \
@@ -318,6 +324,49 @@ if proc_running tftpd || proc_running "in.tftpd" || proc_running atftpd \
    || file_exists /var/lib/tftpboot \
    || udp_port_listening 69; then
     IS_PXE_SERVER=true
+fi
+
+# RabbitMQ broker (AMQP)
+if proc_running_f "rabbitmq" || proc_running "beam.smp" \
+   || svc_active "rabbitmq-server" || svc_active "rabbitmq" \
+   || port_listening 5672 || port_listening 15672; then
+    IS_RABBITMQ=true
+fi
+
+# Prometheus
+if proc_running "prometheus" || svc_active "prometheus" \
+   || file_exists /etc/prometheus/prometheus.yml \
+   || port_listening 9090; then
+    IS_PROMETHEUS=true
+fi
+
+# Alertmanager
+if proc_running "alertmanager" || svc_active "alertmanager" \
+   || port_listening 9093; then
+    IS_ALERTMANAGER=true
+fi
+
+# Grafana
+if proc_running "grafana-server" || proc_running "grafana" \
+   || svc_active "grafana-server" || svc_active "grafana" \
+   || file_exists /etc/grafana/grafana.ini \
+   || port_listening 3000; then
+    IS_GRAFANA=true
+fi
+
+# Content UI (caringo content portal)
+if svc_active "contentportal" || svc_active "content-portal" \
+   || file_exists /opt/caringo/contentportal/conf/contentportal.cfg \
+   || file_exists /etc/caringo/contentportal/contentportal.cfg \
+   || pkg_installed "^caringo-gateway-webui"; then
+    IS_CONTENT_UI=true
+fi
+
+# Storage UI (caringo storage management UI)
+if svc_active "storageui" || svc_active "swarm-ui" || svc_active "storage-ui" \
+   || file_exists /opt/caringo/storageui/conf/storageui.cfg \
+   || port_listening 91; then
+    IS_STORAGE_UI=true
 fi
 
 # ─── NTP client servers (IPs this node synchronizes from) ─────────────────────
@@ -1068,6 +1117,12 @@ cat <<EOF
   "is_ntp_server": $IS_NTP_SERVER,
   "is_dhcp_server": $IS_DHCP_SERVER,
   "is_pxe_server": $IS_PXE_SERVER,
+  "is_rabbitmq": $IS_RABBITMQ,
+  "is_prometheus": $IS_PROMETHEUS,
+  "is_alertmanager": $IS_ALERTMANAGER,
+  "is_grafana": $IS_GRAFANA,
+  "is_content_ui": $IS_CONTENT_UI,
+  "is_storage_ui": $IS_STORAGE_UI,
   "logs": $LOGS_JSON
 }
 EOF
