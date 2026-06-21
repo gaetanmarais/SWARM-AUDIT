@@ -1,7 +1,6 @@
-# Version: 13.1.0
-# Date:    2026-06-20
-# Notes:   Responsive SVG (viewBox only, width=100%); layer order HA→SCS/CSN→GW→LCS→ES/FDB→STORAGE;
-#          tiles centered per role line; one role family per row; collected_at + build watermark
+# Version: 13.2.0
+# Date:    2026-06-21
+# Notes:   CSS custom properties for light/dark theme support; castor log path fix
 
 from __future__ import annotations
 import html as _html_mod
@@ -593,7 +592,7 @@ def _draw_row_wires(
         )
         # Dot on backbone
         parts.append(f'  <circle cx="{backbone_x_l}" cy="{routing_y}" r="3.5" fill="{col}" opacity="0.9"/>')
-        parts.append(f'  <circle cx="{backbone_x_l}" cy="{routing_y}" r="1.5" fill="#0c1524" opacity="0.8"/>')
+        parts.append(f'  <circle cx="{backbone_x_l}" cy="{routing_y}" r="1.5" fill="var(--svg-bg,#0c1524)" opacity="0.8"/>')
 
     # PRIVATE wires: sort by badge_cx descending (rightmost = k=0 = closest routing level)
     right_entries.sort(key=lambda e: e["cx"], reverse=True)
@@ -616,17 +615,29 @@ def _draw_row_wires(
         )
         # Dot on backbone
         parts.append(f'  <circle cx="{backbone_x_r}" cy="{routing_y}" r="3.5" fill="{col}" opacity="0.9"/>')
-        parts.append(f'  <circle cx="{backbone_x_r}" cy="{routing_y}" r="1.5" fill="#0c1524" opacity="0.8"/>')
+        parts.append(f'  <circle cx="{backbone_x_r}" cy="{routing_y}" r="1.5" fill="var(--svg-bg,#0c1524)" opacity="0.8"/>')
 
 
 # ─── Main SVG generator ───────────────────────────────────────────────────────
+
+SVG_THEME_STYLE = """<style>
+  svg { --svg-bg:#0c1524; --card-bg:#162032; --text-primary:#f1f5f9; --text-secondary:#bdc3c7;
+        --text-muted:#475569; --layer-bg:#1e3050; --layer-border:#2a4a70; --bar-bg:#2c3e50; }
+  @media (prefers-color-scheme:light) {
+    svg { --svg-bg:#f1f5f9; --card-bg:#ffffff; --text-primary:#1e293b; --text-secondary:#475569;
+          --text-muted:#94a3b8; --layer-bg:#e2e8f0; --layer-border:#cbd5e1; --bar-bg:#cbd5e1; }
+  }
+</style>"""
+
 
 def generate_svg(results: list[AuditResult], collected_at: str = "", build: str = "") -> str:
     if not results:
         return (
             '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 100" '
-            'style="display:block;width:100%;height:auto;background:#0c1524;">'
-            '<text x="20" y="50" font-family="monospace" fill="#94a3b8">'
+            'style="display:block;width:100%;height:auto;background:var(--svg-bg,#0c1524);">'
+            f'<defs>{SVG_THEME_STYLE}</defs>'
+            '<rect width="800" height="100" fill="var(--svg-bg,#0c1524)"/>'
+            '<text x="20" y="50" font-family="monospace" fill="var(--text-muted,#94a3b8)">'
             'No audit results yet.</text></svg>'
         )
 
@@ -715,7 +726,12 @@ def generate_svg(results: list[AuditResult], collected_at: str = "", build: str 
                 ip_to_id[es_node.ip] = fake.server_id
 
     if not layers:
-        return '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="80"><text x="20" y="40" font-family="monospace" fill="#e74c3c">No results.</text></svg>'
+        return (
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="400" height="80">'
+            f'<defs>{SVG_THEME_STYLE}</defs>'
+            f'<rect width="400" height="80" fill="var(--svg-bg,#0c1524)"/>'
+            f'<text x="20" y="40" font-family="monospace" fill="#e74c3c">No results.</text></svg>'
+        )
 
     # ── Split each layer into sub-rows ────────────────────────────────────────
     active_layers = sorted(layers.keys())
@@ -830,11 +846,13 @@ def generate_svg(results: list[AuditResult], collected_at: str = "", build: str 
         f'viewBox="0 0 {total_w} {total_h}" '
         f'preserveAspectRatio="xMidYMid meet" '
         f'data-natural-w="{total_w}" data-natural-h="{total_h}" '
-        f'style="background:#0c1524;font-family:{FONT};display:block;width:100%;height:auto;">'
+        f'style="background:var(--svg-bg,#0c1524);font-family:{FONT};display:block;width:100%;height:auto;">'
     )
+    parts.append(f'  <rect width="{total_w}" height="{total_h}" fill="var(--svg-bg,#0c1524)"/>')
 
     # Arrowhead markers
     parts.append('  <defs>')
+    parts.append(SVG_THEME_STYLE)
     parts.append('    <marker id="swarm-arrow" viewBox="0 0 10 10" refX="9" refY="5"')
     parts.append('            markerWidth="7" markerHeight="7" orient="auto-start-reverse">')
     parts.append('      <path d="M0,0 L10,5 L0,10 z" fill="#f59e0b" opacity="0.95"/>')
@@ -947,11 +965,11 @@ def generate_svg(results: list[AuditResult], collected_at: str = "", build: str 
         parts.append(
             f'  <rect x="{pad_l + TILE_MARGIN_X - 10}" y="{band_top}" '
             f'width="{tile_area_w + 20}" height="{band_h}" '
-            f'rx="10" fill="#1e3050" opacity="0.18" stroke="#2a4a70" stroke-width="1" stroke-opacity="0.45"/>'
+            f'rx="10" fill="var(--layer-bg,#1e3050)" opacity="0.18" stroke="var(--layer-border,#2a4a70)" stroke-width="1" stroke-opacity="0.45"/>'
         )
         parts.append(
             f'  <text x="{pad_l + TILE_MARGIN_X}" y="{band_bottom - 4}" '
-            f'fill="#4a5a9a" font-size="13" font-style="italic" font-family="{FONT}">{_esc(label)}</text>'
+            f'fill="var(--text-muted,#4a5a9a)" font-size="13" font-style="italic" font-family="{FONT}">{_esc(label)}</text>'
         )
 
     # ── VIP badge ─────────────────────────────────────────────────────────────
@@ -1033,7 +1051,7 @@ def generate_svg(results: list[AuditResult], collected_at: str = "", build: str 
         # 1. Card background
         parts.append(
             f'  <rect x="{x}" y="{y}" width="{NODE_W}" height="{NODE_H}" '
-            f'rx="10" fill="#162032" stroke="{border_color}" stroke-width="{border_width}"/>'
+            f'rx="10" fill="var(--card-bg,#162032)" stroke="{border_color}" stroke-width="{border_width}"/>'
         )
 
         # 2. Right role strip
@@ -1089,8 +1107,8 @@ def generate_svg(results: list[AuditResult], collected_at: str = "", build: str 
 
         if show_json:
             parts.append(f'  <a href="/api/audit/dump/{_esc(r.server_id)}" target="_blank" onclick="event.stopPropagation()">')
-            parts.append(f'  <rect x="{x+4}" y="{json_by}" width="{BTN_W}" height="{BTN_H}" rx="3" fill="#162032" stroke="#475569" stroke-width="1" opacity="0.95"/>')
-            parts.append(f'  <text x="{lstrip_cx}" y="{json_by+10}" text-anchor="middle" fill="#64748b" font-size="8" font-family="{FONT}">JSON</text>')
+            parts.append(f'  <rect x="{x+4}" y="{json_by}" width="{BTN_W}" height="{BTN_H}" rx="3" fill="var(--card-bg,#162032)" stroke="var(--text-muted,#475569)" stroke-width="1" opacity="0.95"/>')
+            parts.append(f'  <text x="{lstrip_cx}" y="{json_by+10}" text-anchor="middle" fill="var(--text-muted,#64748b)" font-size="8" font-family="{FONT}">JSON</text>')
             parts.append('  </a>')
 
         # 3. Role icon
@@ -1101,7 +1119,7 @@ def generate_svg(results: list[AuditResult], collected_at: str = "", build: str 
         name_str = (r.server_name[:20] + "…") if len(r.server_name) > 20 else r.server_name
         parts.append(
             f'  <text x="{body_cx}" y="{y + 90}" text-anchor="middle" '
-            f'fill="#f1f5f9" font-size="14" font-weight="bold" font-family="{FONT}">'
+            f'fill="var(--text-primary,#f1f5f9)" font-size="14" font-weight="bold" font-family="{FONT}">'
             f'{_esc(name_str)}</text>'
         )
 
@@ -1143,10 +1161,10 @@ def generate_svg(results: list[AuditResult], collected_at: str = "", build: str 
             bar_col = "#e74c3c" if _used_pct > 85 else ("#f39c12" if _used_pct > 70 else "#27ae60")
             parts.append(
                 f'  <text x="{body_cx}" y="{bar_y - 3}" text-anchor="middle" '
-                f'fill="#bdc3c7" font-size="8" font-family="{FONT}">'
+                f'fill="var(--text-secondary,#bdc3c7)" font-size="8" font-family="{FONT}">'
                 f'{_esc(sn_data.used)}/{_esc(sn_data.max)} · {_esc(sn_data.streams)} str</text>'
             )
-            parts.append(f'  <rect x="{x+LEFT_BTN_W+8}" y="{bar_y}" width="{bar_w}" height="6" rx="3" fill="#2c3e50"/>')
+            parts.append(f'  <rect x="{x+LEFT_BTN_W+8}" y="{bar_y}" width="{bar_w}" height="6" rx="3" fill="var(--bar-bg,#2c3e50)"/>')
             if filled > 0:
                 parts.append(f'  <rect x="{x+LEFT_BTN_W+8}" y="{bar_y}" width="{filled}" height="6" rx="3" fill="{bar_col}"/>')
 
@@ -1186,7 +1204,7 @@ def generate_svg(results: list[AuditResult], collected_at: str = "", build: str 
             wm_parts.append(f"ARCIS-SWARM {build}")
         wm_text = "  |  ".join(wm_parts)
         parts.append(
-            f'  <text x="12" y="{total_h - 8}" fill="#475569" font-size="9" '
+            f'  <text x="12" y="{total_h - 8}" fill="var(--text-muted,#475569)" font-size="9" '
             f'font-family="monospace" opacity="0.7">{_esc(wm_text)}</text>'
         )
 
@@ -1197,8 +1215,8 @@ def generate_svg(results: list[AuditResult], collected_at: str = "", build: str 
         nlh = 20 + len(subnet_colors) * 18 + 8
         nlx = total_w - nlw - 12
         nly = total_h - nlh - 8
-        parts.append(f'  <rect x="{nlx}" y="{nly}" width="{nlw}" height="{nlh}" rx="6" fill="#162032" opacity="0.85" stroke="#2d4a6b" stroke-width="1"/>')
-        parts.append(f'  <text x="{nlx+8}" y="{nly+14}" fill="#94a3b8" font-size="10" font-weight="bold">Networks</text>')
+        parts.append(f'  <rect x="{nlx}" y="{nly}" width="{nlw}" height="{nlh}" rx="6" fill="var(--card-bg,#162032)" opacity="0.85" stroke="#2d4a6b" stroke-width="1"/>')
+        parts.append(f'  <text x="{nlx+8}" y="{nly+14}" fill="var(--text-muted,#94a3b8)" font-size="10" font-weight="bold">Networks</text>')
         for i, (cidr, col) in enumerate(subnet_colors.items()):
             iy   = nly + 22 + i * 18
             side = backbone_sides.get(cidr, "")

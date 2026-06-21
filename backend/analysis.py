@@ -387,7 +387,9 @@ SEVERITY_ORDER = {"CRITICAL": 0, "WARNING": 1, "INFO": 2, "OK": 3}
 def _group_by_role(results: list[AuditResult]) -> dict[str, list[AuditResult]]:
     """Group servers by detected role, ordered per ROLE_ORDER.
     Multi-role servers appear in each group.
-    Failed servers (success=False) land in UNKNOWN."""
+    Failed servers (success=False) land in UNKNOWN.
+    SCS nodes that carry centralised Castor syslog are also injected into
+    a synthetic CASTOR group so a dedicated storage-node log analysis is run."""
     groups: dict[str, list[AuditResult]] = {}
     for r in results:
         if not r.success or not r.roles:
@@ -396,6 +398,19 @@ def _group_by_role(results: list[AuditResult]) -> dict[str, list[AuditResult]]:
         for rd in r.roles:
             role = rd.role or "UNKNOWN"
             groups.setdefault(role, []).append(r)
+
+    # Synthetic CASTOR group: SCS acts as syslog server for storage nodes —
+    # their logs land at /var/log/datacore/castor.log and are collected under
+    # r.logs["CASTOR"]. Inject those SCS servers into a CASTOR group so a
+    # dedicated storage-node log analysis is generated.
+    if "CASTOR" not in groups:
+        castor_hosts = [
+            r for r in results
+            if r.success and r.logs and r.logs.get("CASTOR")
+        ]
+        if castor_hosts:
+            groups["CASTOR"] = castor_hosts
+
     # Re-order according to ROLE_ORDER, unknown roles appended at the end
     ordered: dict[str, list[AuditResult]] = {}
     for role in ROLE_ORDER:
@@ -528,15 +543,39 @@ async def _analyze_role_group(
             "  - Flag log patterns indicating performance issues, connection failures, or service instability.\n"
             "  - Ignore purely informational/routine lines. Focus on errors, warnings, retries, timeouts.\n"
             "  - If no logs provided or logs are clean, log_findings may be an empty array.\n"
+            "CASTOR / STORAGE NODE LOG ANALYSIS: When the role is CASTOR or STORAGE_NODE, the [CASTOR logs] section\n"
+            "  comes from /var/log/datacore/castor.log on the SCS (centralised syslog server) — it aggregates logs\n"
+            "  from ALL storage nodes in the cluster. Analyse it specifically for:\n"
+            "  - Disk errors, I/O failures, SMART warnings on individual storage nodes.\n"
+            "  - Replication errors or under-replication events (streams < expected replica count).\n"
+            "  - Node evictions, panics, or repeated reconnection attempts.\n"
+            "  - Write/read failures, object corruption or checksum mismatches.\n"
+            "  - Stream capacity warnings (streams approaching max).\n"
+            "  - Any node that appears disproportionately often in errors (failing disk/node).\n"
+            "  The 'servers' field of this module must list the storage node hostnames extracted from the log lines,\n"
+            "  not the SCS server name. Limit log_findings to 6 entries max for CASTOR (more than other roles).\n"
             "Minimum 3 findings per role. Include ALL checked config items as findings (OK or not)."
         )
 
-        prompt = (
-            f"ROLE TO ANALYZE: {role}\n\n"
-            f"SERVERS:\n{server_summaries}"
-            f"{rag_block}\n\n"
-            f"Analyze configuration files only. Return ONLY a JSON object for role {role}:\n{MODULE_SCHEMA}"
-        )
+        # For CASTOR role: instruct Claude to focus on log analysis, not config
+        # (SCS node is the log aggregator; storage nodes have no config files here)
+        if role in ("CASTOR", "STORAGE_NODE"):
+            prompt = (
+                f"ROLE TO ANALYZE: {role}\n\n"
+                f"CONTEXT: These servers are the SCS/syslog aggregator — the [CASTOR logs] section contains\n"
+                f"logs forwarded from all storage nodes via syslog (/var/log/datacore/castor.log on SCS).\n"
+                f"There are no local config files for CASTOR on this host. Focus entirely on the logs.\n\n"
+                f"SERVERS:\n{server_summaries}"
+                f"{rag_block}\n\n"
+                f"Analyze storage node health from the logs. Return ONLY a JSON object for role {role}:\n{MODULE_SCHEMA}"
+            )
+        else:
+            prompt = (
+                f"ROLE TO ANALYZE: {role}\n\n"
+                f"SERVERS:\n{server_summaries}"
+                f"{rag_block}\n\n"
+                f"Analyze configuration files only. Return ONLY a JSON object for role {role}:\n{MODULE_SCHEMA}"
+            )
 
         log.info("Analyzing role group: %s (%d servers, ~%d chars)…",
                  role, len(servers), len(prompt))
