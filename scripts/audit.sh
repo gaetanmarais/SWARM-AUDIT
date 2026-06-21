@@ -192,15 +192,19 @@ if svc_active "storageui" \
 fi
 
 # ─── SCS / CSN (Swarm Cluster Services / Platform Server) ───────────────────
-# Key indicator: /usr/sbin/scsctl binary (only on SCS nodes).
+# Key indicators: scsctl binary, caringo-csn/scs service/package/config,
+# OR port 8095 (SCS Platform API) with etcd ports 2379/2380 (SCS uses etcd
+# as its cluster config store — this combination is unique to SCS nodes).
 if file_exists /usr/sbin/scsctl \
    || bin_exists scsctl \
    || svc_active "caringo-csn" || svc_active "csn" || svc_active "scs" \
    || proc_running "csn" \
    || pkg_installed "caringo-csn|caringo-scs|swarm-scs" \
    || file_exists /etc/caringo/csn/conf.d/csn.cfg \
-   || file_exists /var/opt/caringo/netboot/content/cluster.cfg; then
-    add_role "SCS" "binary/svc/pkg/cfg: scsctl|csn|scs"
+   || file_exists /var/opt/caringo/netboot/content/cluster.cfg \
+   || port_listening 8095 \
+   || { port_listening 2379 && port_listening 2380; }; then
+    add_role "SCS" "binary/svc/pkg/cfg/port: scsctl|csn|scs|etcd:2379+2380|platform:8095"
 fi
 
 # CSN Platform Server (older branding — legacy installs)

@@ -1,6 +1,6 @@
-# Version: 1.1.0
-# Date:    2026-06-20
-# Notes:   Add cluster_name param — shown in title, header, and passed via filename from main.py.
+# Version: 1.2.0
+# Date:    2026-06-21
+# Notes:   Add connections section + raw JSON collapsible to server cards in static export.
 
 from __future__ import annotations
 import html
@@ -182,6 +182,21 @@ def _server_card(r: dict) -> str:
     ports = r.get("listen_ports", [])
     ports_str = ", ".join(html.escape(p.get("port", "")) for p in ports[:30])
 
+    # Connections
+    conns = r.get("connections", [])
+    conn_rows = ""
+    for c in conns[:60]:
+        src = html.escape(c.get("local", ""))
+        dst = html.escape(c.get("remote", ""))
+        proc = html.escape(c.get("process", ""))
+        state = html.escape(c.get("state", ""))
+        conn_rows += (
+            f'<div class="kv">'
+            f'<span class="k" style="font-family:monospace">{src} → {dst}</span>'
+            f'<span class="v">{proc} {state}</span>'
+            f'</div>'
+        )
+
     # Config files
     cfg_blocks = ""
     for path, content in list(r.get("config_contents", {}).items())[:6]:
@@ -192,6 +207,16 @@ def _server_card(r: dict) -> str:
     for role_key, log_text in r.get("logs", {}).items():
         if log_text:
             log_blocks += f'<h3>{html.escape(role_key)} logs</h3><div class="log-block">{html.escape(log_text[:1500])}</div>'
+
+    # Raw JSON — stripped of bulky log/config content for readability
+    raw_keys = ["server_id","server_name","server_ip","hostname","os","kernel","uptime_sec",
+                "cpu","ram","disks","roles","listen_ports","connections","network_interfaces",
+                "gw_cluster_ips","gw_es_ips","gw_lcs_ips","haproxy_backends","haproxy_vips",
+                "swarm_cluster_summary","discovered_storage_nodes","es_cluster_name",
+                "discovered_es_nodes","es_seed_hosts","is_syslog_server","is_ntp_server",
+                "is_dhcp_server","is_pxe_server","installed_packages"]
+    raw_dict = {k: r[k] for k in raw_keys if k in r}
+    raw_json = html.escape(json.dumps(raw_dict, indent=2, default=str))
 
     return f"""<details class="server-card">
   <summary>
@@ -204,8 +229,15 @@ def _server_card(r: dict) -> str:
     {'<div class="server-section"><h3>Specs</h3>' + specs_rows + '</div>' if specs_rows else ''}
     {'<div class="server-section"><h3>Disks</h3>' + disk_rows + '</div>' if disk_rows else ''}
     {'<div class="server-section"><h3>Listen ports</h3><div class="kv"><span class="v">' + ports_str + '</span></div></div>' if ports_str else ''}
+    {'<div class="server-section" style="grid-column:1/-1"><h3>Active connections</h3>' + conn_rows + '</div>' if conn_rows else ''}
     {'<div class="server-section" style="grid-column:1/-1"><h3>Config files</h3>' + cfg_blocks + '</div>' if cfg_blocks else ''}
     {'<div class="server-section" style="grid-column:1/-1"><h3>Application logs (24h)</h3>' + log_blocks + '</div>' if log_blocks else ''}
+    <div class="server-section" style="grid-column:1/-1">
+      <details>
+        <summary style="cursor:pointer;color:#64748b;font-size:.75rem;padding:.25rem 0">Raw JSON</summary>
+        <div class="cfg-block" style="max-height:400px">{raw_json}</div>
+      </details>
+    </div>
   </div>
 </details>"""
 
