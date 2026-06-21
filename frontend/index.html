@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <!--
-  Version: 1.17.0
-  Date:    2026-06-20
-  Notes:   proxy-safe: export via fetch+blob; detail modal via event delegation (no inline onclick)
+  Version: 1.18.0
+  Date:    2026-06-21
+  Notes:   i18n system — FR/EN/DE/IT/ES, lang selector in header, localStorage persistence
 -->
 <html lang="en">
 <head>
@@ -59,6 +59,7 @@
   @keyframes spin { to { transform:rotate(360deg); } }
   .pulse { animation:pulse 2s ease-in-out infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+  .active-lang { color:#fff; font-weight:600; }
 
   table { border-collapse:collapse; }
   th { font-weight:600; letter-spacing:.04em; }
@@ -97,6 +98,18 @@
     <p class="text-xs mt-0.5" style="color:var(--fg-dim);">Infrastructure Audit &amp; Role Mapping &nbsp;<span id="build-badge" class="font-mono text-slate-600 text-xs"></span></p>
   </div>
   <div class="flex items-center gap-3">
+    <!-- Language selector -->
+    <div class="flex items-center gap-1 text-xs">
+      <button data-lang-btn="fr" onclick="setLang('fr')" class="px-1.5 py-0.5 rounded hover:text-white text-slate-400">FR</button>
+      <span class="text-slate-700">|</span>
+      <button data-lang-btn="en" onclick="setLang('en')" class="px-1.5 py-0.5 rounded hover:text-white text-slate-400">EN</button>
+      <span class="text-slate-700">|</span>
+      <button data-lang-btn="de" onclick="setLang('de')" class="px-1.5 py-0.5 rounded hover:text-white text-slate-400">DE</button>
+      <span class="text-slate-700">|</span>
+      <button data-lang-btn="it" onclick="setLang('it')" class="px-1.5 py-0.5 rounded hover:text-white text-slate-400">IT</button>
+      <span class="text-slate-700">|</span>
+      <button data-lang-btn="es" onclick="setLang('es')" class="px-1.5 py-0.5 rounded hover:text-white text-slate-400">ES</button>
+    </div>
     <!-- Theme toggle -->
     <button id="theme-toggle" onclick="toggleTheme()"
       class="btn btn-ghost flex items-center gap-1.5 text-xs" title="Toggle light/dark mode">
@@ -160,12 +173,12 @@
 
 <!-- Tabs -->
 <div class="border-b border-slate-800 px-6 flex gap-0">
-  <div class="tab active" onclick="showTab('diagram')" id="tab-diagram">Diagram</div>
-  <div class="tab" onclick="showTab('results')" id="tab-results">Audit Results</div>
-  <div class="tab" onclick="showTab('analysis')" id="tab-analysis">Analysis</div>
-  <div class="tab" onclick="showTab('discovery')" id="tab-discovery">Discovery</div>
-  <div class="tab" onclick="showTab('servers')" id="tab-servers">Servers</div>
-  <div class="tab" onclick="showTab('credentials')" id="tab-credentials">Credentials</div>
+  <div class="tab active" onclick="showTab('diagram')" id="tab-diagram" data-i18n="nav_diagram">Diagram</div>
+  <div class="tab" onclick="showTab('results')" id="tab-results" data-i18n="nav_results">Audit Results</div>
+  <div class="tab" onclick="showTab('analysis')" id="tab-analysis" data-i18n="nav_analysis">Analysis</div>
+  <div class="tab" onclick="showTab('discovery')" id="tab-discovery" data-i18n="nav_discovery">Discovery</div>
+  <div class="tab" onclick="showTab('servers')" id="tab-servers" data-i18n="nav_servers">Servers</div>
+  <div class="tab" onclick="showTab('credentials')" id="tab-credentials" data-i18n="nav_credentials">Credentials</div>
 </div>
 
 <div class="p-6 max-w-screen-2xl mx-auto">
@@ -192,7 +205,7 @@
     </div>
     <div id="diagram-container" class="card rounded-xl p-4 overflow-auto min-h-64">
       <div id="diagram-inner" style="display:block;transform-origin:0 0;overflow:hidden;">
-        <p class="text-slate-500 text-sm">Run an audit to generate the infrastructure diagram.</p>
+        <p class="text-slate-500 text-sm" data-i18n="no_diagram">Aucun diagramme disponible. Lancez un audit.</p>
       </div>
     </div>
   </div>
@@ -341,7 +354,7 @@
 
     <!-- Analysis idle placeholder -->
     <div id="analysis-idle" class="card rounded-xl p-8 text-center text-slate-500 text-sm">
-      Analysis will run automatically after the next audit. Run an audit to generate AI findings.
+      <span data-i18n="analysis_idle">L'analyse se lancera automatiquement après le prochain audit.</span>
     </div>
 
     <!-- Analysis results container -->
@@ -369,13 +382,13 @@
     </div>
     <!-- tabs -->
     <div class="flex gap-0 border-b border-slate-800 px-5">
-      <div class="tab active" onclick="connTab('connections')" id="conn-tab-connections">Connexions</div>
-      <div class="tab" onclick="connTab('packages')" id="conn-tab-packages">Packages RPM</div>
-      <div class="tab hidden" onclick="connTab('configs')" id="conn-tab-configs">Config Files</div>
-      <div class="tab hidden" onclick="connTab('es-overview')" id="conn-tab-es-overview">ES Overview</div>
-      <div class="tab hidden" onclick="connTab('es-nodes')"   id="conn-tab-es-nodes">ES Nœuds</div>
-      <div class="tab hidden" onclick="connTab('es-indices')" id="conn-tab-es-indices">ES Indices</div>
-      <div class="tab hidden" onclick="connTab('es-alloc')"   id="conn-tab-es-alloc">ES Disques</div>
+      <div class="tab active" onclick="connTab('connections')" id="conn-tab-connections" data-i18n="tab_connections">Connexions</div>
+      <div class="tab" onclick="connTab('packages')" id="conn-tab-packages" data-i18n="tab_packages">Packages RPM</div>
+      <div class="tab hidden" onclick="connTab('configs')" id="conn-tab-configs" data-i18n="tab_configs">Config Files</div>
+      <div class="tab hidden" onclick="connTab('es-overview')" id="conn-tab-es-overview" data-i18n="tab_es_overview">ES Overview</div>
+      <div class="tab hidden" onclick="connTab('es-nodes')"   id="conn-tab-es-nodes" data-i18n="tab_es_nodes">ES Nœuds</div>
+      <div class="tab hidden" onclick="connTab('es-indices')" id="conn-tab-es-indices" data-i18n="tab_es_indices">ES Indices</div>
+      <div class="tab hidden" onclick="connTab('es-alloc')"   id="conn-tab-es-alloc" data-i18n="tab_es_disk">ES Disques</div>
     </div>
     <div id="conn-modal-body" class="flex-1 overflow-auto p-5 text-sm font-mono leading-relaxed"></div>
   </div>
@@ -392,13 +405,13 @@
       <button onclick="closeSnModal()" class="text-slate-500 hover:text-slate-200 text-2xl leading-none px-2">&times;</button>
     </div>
     <div class="flex gap-0 border-b border-slate-800 px-5 overflow-x-auto">
-      <div class="tab active whitespace-nowrap" onclick="snTab('overview')"  id="sn-tab-overview">Vue d'ensemble</div>
-      <div class="tab whitespace-nowrap"        onclick="snTab('volumes')"   id="sn-tab-volumes">Volumes</div>
-      <div class="tab whitespace-nowrap"        onclick="snTab('hardware')"  id="sn-tab-hardware">Hardware</div>
-      <div class="tab whitespace-nowrap hidden" onclick="snTab('hp')"        id="sn-tab-hp">Health Processor</div>
-      <div class="tab whitespace-nowrap hidden" onclick="snTab('feeds')"     id="sn-tab-feeds">Feeds</div>
-      <div class="tab whitespace-nowrap hidden" onclick="snTab('defrag')"   id="sn-tab-defrag">Defrag</div>
-      <div class="tab whitespace-nowrap hidden" onclick="snTab('alerts')"    id="sn-tab-alerts">Alertes</div>
+      <div class="tab active whitespace-nowrap" onclick="snTab('overview')"  id="sn-tab-overview" data-i18n="sn_tab_overview">Vue d'ensemble</div>
+      <div class="tab whitespace-nowrap"        onclick="snTab('volumes')"   id="sn-tab-volumes" data-i18n="sn_tab_volumes">Volumes</div>
+      <div class="tab whitespace-nowrap"        onclick="snTab('hardware')"  id="sn-tab-hardware" data-i18n="sn_tab_hardware">Hardware</div>
+      <div class="tab whitespace-nowrap hidden" onclick="snTab('hp')"        id="sn-tab-hp" data-i18n="sn_tab_hp">Health Processor</div>
+      <div class="tab whitespace-nowrap hidden" onclick="snTab('feeds')"     id="sn-tab-feeds" data-i18n="sn_tab_feeds">Feeds</div>
+      <div class="tab whitespace-nowrap hidden" onclick="snTab('defrag')"   id="sn-tab-defrag" data-i18n="sn_tab_defrag">Défrag</div>
+      <div class="tab whitespace-nowrap hidden" onclick="snTab('alerts')"    id="sn-tab-alerts" data-i18n="sn_tab_alerts">Alertes</div>
     </div>
     <div id="sn-modal-body" class="flex-1 overflow-auto p-5 text-sm"></div>
   </div>
@@ -458,6 +471,434 @@
 </div>
 
 <script>
+// ─── i18n ────────────────────────────────────────────────────────────────────
+const TRANSLATIONS = {
+  fr: {
+    nav_diagram: 'Diagramme',
+    nav_results: 'Résultats',
+    nav_analysis: 'Analyse IA',
+    nav_discovery: 'Découverte',
+    nav_servers: 'Serveurs',
+    nav_credentials: 'Identifiants',
+    nav_settings: 'Paramètres',
+    btn_run_audit: 'Lancer l\'audit',
+    btn_running: 'Audit en cours…',
+    btn_export: 'Exporter',
+    btn_health_report: 'Health Report',
+    btn_run_analysis: 'Analyser',
+    btn_retry_analysis: 'Relancer l\'analyse',
+    no_results: 'Aucun résultat d\'audit disponible.',
+    loading: 'Chargement…',
+    audit_success: 'Audit terminé',
+    analysis_running: 'Analyse en cours… veuillez patienter.',
+    analysis_idle: 'L\'analyse se lancera automatiquement après le prochain audit.',
+    error_rate_limit: 'Rate limited (Anthropic API 429)',
+    analysis_failed: 'Analyse échouée',
+    tab_connections: 'Connexions',
+    tab_packages: 'Paquets',
+    tab_configs: 'Configs',
+    tab_es_overview: 'ES Overview',
+    tab_es_nodes: 'ES Nœuds',
+    tab_es_indices: 'ES Indices',
+    tab_es_disk: 'ES Disques',
+    outgoing_config: 'Sorties (config)',
+    outgoing_live: 'Sorties (live TCP)',
+    incoming_live: 'Entrées (live TCP)',
+    section_nodes: 'Nœuds',
+    section_shards: 'Shards',
+    section_indices: 'Indices',
+    section_seed_hosts: 'Seed Hosts',
+    section_discovered: 'Nœuds découverts',
+    section_alloc: 'Allocation disques',
+    section_es_disk: 'Disque données Elasticsearch',
+    analyzed: 'Analysé',
+    cfg_findings: 'Configuration',
+    log_findings: 'Log Analysis',
+    cross_correlations_tab: 'Cross-Correlations',
+    cred_name: 'Nom du profil',
+    cred_login: 'Login',
+    cred_password: 'Mot de passe',
+    cred_key: 'Clé privée',
+    cred_port: 'Port SSH',
+    cred_default: 'Profil par défaut',
+    btn_add_cred: 'Ajouter',
+    btn_save: 'Enregistrer',
+    btn_cancel: 'Annuler',
+    btn_delete: 'Supprimer',
+    srv_name: 'Nom',
+    srv_ip: 'IP',
+    srv_cred: 'Profil SSH',
+    btn_add_srv: 'Ajouter',
+    settings_mcp_url: 'Hub MCP URL',
+    settings_mcp_token: 'Hub MCP Token',
+    settings_anthropic_key: 'Anthropic API Key',
+    settings_backend: 'Backend d\'analyse',
+    settings_saved: 'Paramètres sauvegardés',
+    backend_auto: 'Auto',
+    backend_hub: 'Hub MCP',
+    backend_direct: 'Direct API',
+    sn_tab_overview: 'Vue d\'ensemble',
+    sn_tab_volumes: 'Volumes',
+    sn_tab_hardware: 'Matériel',
+    sn_tab_hp: 'Health Processor',
+    sn_tab_feeds: 'Feeds',
+    sn_tab_defrag: 'Défrag',
+    sn_tab_alerts: 'Alertes',
+    sn_no_feed: 'Aucun feed configuré sur ce nœud.',
+    disc_start: 'Démarrer la découverte',
+    disc_running: 'Découverte en cours…',
+    disc_idle: 'Aucune découverte lancée.',
+    disc_done: 'Découverte terminée',
+    detail_btn: 'Détails →',
+    discovered_badge: 'discovered',
+    no_data: 'Données non disponibles',
+    loading_diagram: 'Génération du diagramme…',
+    no_diagram: 'Aucun diagramme disponible. Lancez un audit.',
+  },
+  en: {
+    nav_diagram: 'Diagram',
+    nav_results: 'Results',
+    nav_analysis: 'AI Analysis',
+    nav_discovery: 'Discovery',
+    nav_servers: 'Servers',
+    nav_credentials: 'Credentials',
+    nav_settings: 'Settings',
+    btn_run_audit: 'Run Audit',
+    btn_running: 'Running…',
+    btn_export: 'Export',
+    btn_health_report: 'Health Report',
+    btn_run_analysis: 'Analyze',
+    btn_retry_analysis: 'Retry Analysis',
+    no_results: 'No audit results available.',
+    loading: 'Loading…',
+    audit_success: 'Audit complete',
+    analysis_running: 'Analysis in progress… please wait.',
+    analysis_idle: 'Analysis will run automatically after the next audit.',
+    error_rate_limit: 'Rate limited (Anthropic API 429)',
+    analysis_failed: 'Analysis failed',
+    tab_connections: 'Connections',
+    tab_packages: 'Packages',
+    tab_configs: 'Configs',
+    tab_es_overview: 'ES Overview',
+    tab_es_nodes: 'ES Nodes',
+    tab_es_indices: 'ES Indices',
+    tab_es_disk: 'ES Disks',
+    outgoing_config: 'Outgoing (config)',
+    outgoing_live: 'Outgoing (live TCP)',
+    incoming_live: 'Incoming (live TCP)',
+    section_nodes: 'Nodes',
+    section_shards: 'Shards',
+    section_indices: 'Indices',
+    section_seed_hosts: 'Seed Hosts',
+    section_discovered: 'Discovered nodes',
+    section_alloc: 'Disk allocation',
+    section_es_disk: 'Elasticsearch data disk',
+    analyzed: 'Analyzed',
+    cfg_findings: 'Configuration',
+    log_findings: 'Log Analysis',
+    cross_correlations_tab: 'Cross-Correlations',
+    cred_name: 'Profile name',
+    cred_login: 'Login',
+    cred_password: 'Password',
+    cred_key: 'Private key',
+    cred_port: 'SSH port',
+    cred_default: 'Default profile',
+    btn_add_cred: 'Add',
+    btn_save: 'Save',
+    btn_cancel: 'Cancel',
+    btn_delete: 'Delete',
+    srv_name: 'Name',
+    srv_ip: 'IP',
+    srv_cred: 'SSH profile',
+    btn_add_srv: 'Add',
+    settings_mcp_url: 'Hub MCP URL',
+    settings_mcp_token: 'Hub MCP Token',
+    settings_anthropic_key: 'Anthropic API Key',
+    settings_backend: 'Analysis backend',
+    settings_saved: 'Settings saved',
+    backend_auto: 'Auto',
+    backend_hub: 'Hub MCP',
+    backend_direct: 'Direct API',
+    sn_tab_overview: 'Overview',
+    sn_tab_volumes: 'Volumes',
+    sn_tab_hardware: 'Hardware',
+    sn_tab_hp: 'Health Processor',
+    sn_tab_feeds: 'Feeds',
+    sn_tab_defrag: 'Defrag',
+    sn_tab_alerts: 'Alerts',
+    sn_no_feed: 'No feed configured on this node.',
+    disc_start: 'Start discovery',
+    disc_running: 'Discovery in progress…',
+    disc_idle: 'No discovery started.',
+    disc_done: 'Discovery complete',
+    detail_btn: 'Details →',
+    discovered_badge: 'discovered',
+    no_data: 'Data not available',
+    loading_diagram: 'Generating diagram…',
+    no_diagram: 'No diagram available. Run an audit.',
+  },
+  de: {
+    nav_diagram: 'Diagramm',
+    nav_results: 'Ergebnisse',
+    nav_analysis: 'KI-Analyse',
+    nav_discovery: 'Erkennung',
+    nav_servers: 'Server',
+    nav_credentials: 'Zugangsdaten',
+    nav_settings: 'Einstellungen',
+    btn_run_audit: 'Audit starten',
+    btn_running: 'Läuft…',
+    btn_export: 'Exportieren',
+    btn_health_report: 'Health Report',
+    btn_run_analysis: 'Analysieren',
+    btn_retry_analysis: 'Analyse wiederholen',
+    no_results: 'Keine Audit-Ergebnisse verfügbar.',
+    loading: 'Laden…',
+    audit_success: 'Audit abgeschlossen',
+    analysis_running: 'Analyse läuft… bitte warten.',
+    analysis_idle: 'Analyse startet automatisch nach dem nächsten Audit.',
+    error_rate_limit: 'Rate limited (Anthropic API 429)',
+    analysis_failed: 'Analyse fehlgeschlagen',
+    tab_connections: 'Verbindungen',
+    tab_packages: 'Pakete',
+    tab_configs: 'Konfigurationen',
+    tab_es_overview: 'ES Übersicht',
+    tab_es_nodes: 'ES Knoten',
+    tab_es_indices: 'ES Indizes',
+    tab_es_disk: 'ES Festplatten',
+    outgoing_config: 'Ausgehend (Konfiguration)',
+    outgoing_live: 'Ausgehend (live TCP)',
+    incoming_live: 'Eingehend (live TCP)',
+    section_nodes: 'Knoten',
+    section_shards: 'Shards',
+    section_indices: 'Indizes',
+    section_seed_hosts: 'Seed Hosts',
+    section_discovered: 'Entdeckte Knoten',
+    section_alloc: 'Festplattenzuweisung',
+    section_es_disk: 'Elasticsearch-Datenfestplatte',
+    analyzed: 'Analysiert',
+    cfg_findings: 'Konfiguration',
+    log_findings: 'Log-Analyse',
+    cross_correlations_tab: 'Kreuzkorrelationen',
+    cred_name: 'Profilname',
+    cred_login: 'Benutzername',
+    cred_password: 'Passwort',
+    cred_key: 'Privater Schlüssel',
+    cred_port: 'SSH-Port',
+    cred_default: 'Standardprofil',
+    btn_add_cred: 'Hinzufügen',
+    btn_save: 'Speichern',
+    btn_cancel: 'Abbrechen',
+    btn_delete: 'Löschen',
+    srv_name: 'Name',
+    srv_ip: 'IP',
+    srv_cred: 'SSH-Profil',
+    btn_add_srv: 'Hinzufügen',
+    settings_mcp_url: 'Hub MCP URL',
+    settings_mcp_token: 'Hub MCP Token',
+    settings_anthropic_key: 'Anthropic API-Schlüssel',
+    settings_backend: 'Analyse-Backend',
+    settings_saved: 'Einstellungen gespeichert',
+    backend_auto: 'Auto',
+    backend_hub: 'Hub MCP',
+    backend_direct: 'Direkte API',
+    sn_tab_overview: 'Übersicht',
+    sn_tab_volumes: 'Volumes',
+    sn_tab_hardware: 'Hardware',
+    sn_tab_hp: 'Health Processor',
+    sn_tab_feeds: 'Feeds',
+    sn_tab_defrag: 'Defragmentierung',
+    sn_tab_alerts: 'Warnungen',
+    sn_no_feed: 'Kein Feed auf diesem Knoten konfiguriert.',
+    disc_start: 'Erkennung starten',
+    disc_running: 'Erkennung läuft…',
+    disc_idle: 'Keine Erkennung gestartet.',
+    disc_done: 'Erkennung abgeschlossen',
+    detail_btn: 'Details →',
+    discovered_badge: 'erkannt',
+    no_data: 'Daten nicht verfügbar',
+    loading_diagram: 'Diagramm wird generiert…',
+    no_diagram: 'Kein Diagramm verfügbar. Audit starten.',
+  },
+  it: {
+    nav_diagram: 'Diagramma',
+    nav_results: 'Risultati',
+    nav_analysis: 'Analisi IA',
+    nav_discovery: 'Scoperta',
+    nav_servers: 'Server',
+    nav_credentials: 'Credenziali',
+    nav_settings: 'Impostazioni',
+    btn_run_audit: 'Avvia audit',
+    btn_running: 'In esecuzione…',
+    btn_export: 'Esporta',
+    btn_health_report: 'Health Report',
+    btn_run_analysis: 'Analizza',
+    btn_retry_analysis: 'Riprova analisi',
+    no_results: 'Nessun risultato di audit disponibile.',
+    loading: 'Caricamento…',
+    audit_success: 'Audit completato',
+    analysis_running: 'Analisi in corso… attendere.',
+    analysis_idle: 'L\'analisi verrà avviata automaticamente dopo il prossimo audit.',
+    error_rate_limit: 'Rate limited (Anthropic API 429)',
+    analysis_failed: 'Analisi fallita',
+    tab_connections: 'Connessioni',
+    tab_packages: 'Pacchetti',
+    tab_configs: 'Configurazioni',
+    tab_es_overview: 'ES Panoramica',
+    tab_es_nodes: 'ES Nodi',
+    tab_es_indices: 'ES Indici',
+    tab_es_disk: 'ES Dischi',
+    outgoing_config: 'Uscenti (config)',
+    outgoing_live: 'Uscenti (TCP live)',
+    incoming_live: 'Entranti (TCP live)',
+    section_nodes: 'Nodi',
+    section_shards: 'Shards',
+    section_indices: 'Indici',
+    section_seed_hosts: 'Seed Hosts',
+    section_discovered: 'Nodi scoperti',
+    section_alloc: 'Allocazione dischi',
+    section_es_disk: 'Disco dati Elasticsearch',
+    analyzed: 'Analizzato',
+    cfg_findings: 'Configurazione',
+    log_findings: 'Analisi log',
+    cross_correlations_tab: 'Correlazioni incrociate',
+    cred_name: 'Nome profilo',
+    cred_login: 'Login',
+    cred_password: 'Password',
+    cred_key: 'Chiave privata',
+    cred_port: 'Porta SSH',
+    cred_default: 'Profilo predefinito',
+    btn_add_cred: 'Aggiungi',
+    btn_save: 'Salva',
+    btn_cancel: 'Annulla',
+    btn_delete: 'Elimina',
+    srv_name: 'Nome',
+    srv_ip: 'IP',
+    srv_cred: 'Profilo SSH',
+    btn_add_srv: 'Aggiungi',
+    settings_mcp_url: 'Hub MCP URL',
+    settings_mcp_token: 'Hub MCP Token',
+    settings_anthropic_key: 'Chiave API Anthropic',
+    settings_backend: 'Backend di analisi',
+    settings_saved: 'Impostazioni salvate',
+    backend_auto: 'Auto',
+    backend_hub: 'Hub MCP',
+    backend_direct: 'API diretta',
+    sn_tab_overview: 'Panoramica',
+    sn_tab_volumes: 'Volumi',
+    sn_tab_hardware: 'Hardware',
+    sn_tab_hp: 'Health Processor',
+    sn_tab_feeds: 'Feeds',
+    sn_tab_defrag: 'Deframmentazione',
+    sn_tab_alerts: 'Avvisi',
+    sn_no_feed: 'Nessun feed configurato su questo nodo.',
+    disc_start: 'Avvia scoperta',
+    disc_running: 'Scoperta in corso…',
+    disc_idle: 'Nessuna scoperta avviata.',
+    disc_done: 'Scoperta completata',
+    detail_btn: 'Dettagli →',
+    discovered_badge: 'scoperto',
+    no_data: 'Dati non disponibili',
+    loading_diagram: 'Generazione diagramma…',
+    no_diagram: 'Nessun diagramma disponibile. Avviare un audit.',
+  },
+  es: {
+    nav_diagram: 'Diagrama',
+    nav_results: 'Resultados',
+    nav_analysis: 'Análisis IA',
+    nav_discovery: 'Descubrimiento',
+    nav_servers: 'Servidores',
+    nav_credentials: 'Credenciales',
+    nav_settings: 'Configuración',
+    btn_run_audit: 'Iniciar auditoría',
+    btn_running: 'En curso…',
+    btn_export: 'Exportar',
+    btn_health_report: 'Health Report',
+    btn_run_analysis: 'Analizar',
+    btn_retry_analysis: 'Reintentar análisis',
+    no_results: 'No hay resultados de auditoría disponibles.',
+    loading: 'Cargando…',
+    audit_success: 'Auditoría completada',
+    analysis_running: 'Análisis en curso… por favor espere.',
+    analysis_idle: 'El análisis se ejecutará automáticamente tras la próxima auditoría.',
+    error_rate_limit: 'Rate limited (Anthropic API 429)',
+    analysis_failed: 'Análisis fallido',
+    tab_connections: 'Conexiones',
+    tab_packages: 'Paquetes',
+    tab_configs: 'Configuraciones',
+    tab_es_overview: 'ES Vista general',
+    tab_es_nodes: 'ES Nodos',
+    tab_es_indices: 'ES Índices',
+    tab_es_disk: 'ES Discos',
+    outgoing_config: 'Salientes (config)',
+    outgoing_live: 'Salientes (TCP en vivo)',
+    incoming_live: 'Entrantes (TCP en vivo)',
+    section_nodes: 'Nodos',
+    section_shards: 'Shards',
+    section_indices: 'Índices',
+    section_seed_hosts: 'Seed Hosts',
+    section_discovered: 'Nodos descubiertos',
+    section_alloc: 'Asignación de discos',
+    section_es_disk: 'Disco de datos Elasticsearch',
+    analyzed: 'Analizado',
+    cfg_findings: 'Configuración',
+    log_findings: 'Análisis de logs',
+    cross_correlations_tab: 'Correlaciones cruzadas',
+    cred_name: 'Nombre de perfil',
+    cred_login: 'Usuario',
+    cred_password: 'Contraseña',
+    cred_key: 'Clave privada',
+    cred_port: 'Puerto SSH',
+    cred_default: 'Perfil predeterminado',
+    btn_add_cred: 'Agregar',
+    btn_save: 'Guardar',
+    btn_cancel: 'Cancelar',
+    btn_delete: 'Eliminar',
+    srv_name: 'Nombre',
+    srv_ip: 'IP',
+    srv_cred: 'Perfil SSH',
+    btn_add_srv: 'Agregar',
+    settings_mcp_url: 'Hub MCP URL',
+    settings_mcp_token: 'Hub MCP Token',
+    settings_anthropic_key: 'Clave API Anthropic',
+    settings_backend: 'Backend de análisis',
+    settings_saved: 'Configuración guardada',
+    backend_auto: 'Auto',
+    backend_hub: 'Hub MCP',
+    backend_direct: 'API directa',
+    sn_tab_overview: 'Vista general',
+    sn_tab_volumes: 'Volúmenes',
+    sn_tab_hardware: 'Hardware',
+    sn_tab_hp: 'Health Processor',
+    sn_tab_feeds: 'Feeds',
+    sn_tab_defrag: 'Desfragmentación',
+    sn_tab_alerts: 'Alertas',
+    sn_no_feed: 'Ningún feed configurado en este nodo.',
+    disc_start: 'Iniciar descubrimiento',
+    disc_running: 'Descubrimiento en curso…',
+    disc_idle: 'Ningún descubrimiento iniciado.',
+    disc_done: 'Descubrimiento completado',
+    detail_btn: 'Detalles →',
+    discovered_badge: 'descubierto',
+    no_data: 'Datos no disponibles',
+    loading_diagram: 'Generando diagrama…',
+    no_diagram: 'No hay diagrama disponible. Inicie una auditoría.',
+  },
+};
+let _lang = localStorage.getItem('arcis-lang') || 'fr';
+function t(key) { return (TRANSLATIONS[_lang] || TRANSLATIONS.fr)[key] || TRANSLATIONS.en[key] || key; }
+function setLang(l) { _lang = l; localStorage.setItem('arcis-lang', l); applyLang(); }
+function applyLang() {
+  document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
+  const activeTab = document.querySelector('.nav-tab.active')?.dataset?.tab
+    || document.querySelector('.tab.active[id^="tab-"]')?.id?.replace('tab-', '');
+  if (activeTab === 'results') loadResults();
+  else if (activeTab === 'analysis') loadAnalysis();
+  document.querySelectorAll('[data-lang-btn]').forEach(btn => {
+    btn.classList.toggle('active-lang', btn.dataset.langBtn === _lang);
+  });
+}
+
+// ─── State ───────────────────────────────────────────────────────────────────
 const API = '';
 let credentials = [];
 let servers = [];
@@ -615,7 +1056,7 @@ async function addAllDiscovered() {
 async function triggerAudit() {
   const btn = document.getElementById('audit-btn');
   btn.disabled = true;
-  btn.innerHTML = '<svg class="w-4 h-4 spinner" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 20v-5h-5M4 9a9 9 0 0115 0M20 15a9 9 0 01-15 0"/></svg> Running...';
+  btn.innerHTML = '<svg class="w-4 h-4 spinner" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 20v-5h-5M4 9a9 9 0 0115 0M20 15a9 9 0 01-15 0"/></svg> ' + t('btn_running');
   try {
     const r = await fetch(API+'/api/audit/run', {method:'POST'});
     const d = await r.json();
@@ -625,7 +1066,7 @@ async function triggerAudit() {
   } catch(e) {
     alert('Failed to start audit: '+e);
     btn.disabled = false;
-    btn.innerHTML = 'Run Audit';
+    btn.innerHTML = t('btn_run_audit');
   }
 }
 
@@ -637,15 +1078,15 @@ function pollAuditStatus() {
     const badge = document.getElementById('audit-status-badge');
     badge.classList.remove('hidden');
     if (d.status === 'running') {
-      badge.textContent = 'Audit running...';
+      badge.textContent = t('btn_running');
       badge.className = 'text-xs px-3 py-1 rounded-full bg-blue-900 text-blue-300 pulse';
     } else if (d.status === 'done') {
-      badge.textContent = 'Audit complete';
+      badge.textContent = t('audit_success');
       badge.className = 'text-xs px-3 py-1 rounded-full bg-green-900 text-green-300';
       clearInterval(auditPollTimer);
       const btn = document.getElementById('audit-btn');
       btn.disabled = false;
-      btn.innerHTML = 'Run Audit';
+      btn.innerHTML = t('btn_run_audit');
       await loadResults();
       loadDiagram();
       // Start polling analysis (backend will trigger it after audit)
@@ -656,7 +1097,7 @@ function pollAuditStatus() {
       clearInterval(auditPollTimer);
       const btn = document.getElementById('audit-btn');
       btn.disabled = false;
-      btn.innerHTML = 'Run Audit';
+      btn.innerHTML = t('btn_run_audit');
       loadResults();   // show partial results even on error
     }
   }, 2000);
@@ -749,11 +1190,11 @@ function _resultCardHtml(res) {
   const primaryRole = (res.roles || [{role:'UNKNOWN'}])[0].role;
   const isStorageNode = primaryRole === 'STORAGE_NODE';
   const detailBtn = (res.success || res._discovered)
-    ? `<button class="btn btn-ghost text-xs mt-2 detail-btn" data-server-id="${res.server_id}" data-is-sn="${isStorageNode ? '1' : '0'}">Détails →</button>`
+    ? `<button class="btn btn-ghost text-xs mt-2 detail-btn" data-server-id="${res.server_id}" data-is-sn="${isStorageNode ? '1' : '0'}">${t('detail_btn')}</button>`
     : '';
 
   const discoveredBadge = res._discovered
-    ? '<span class="text-xs text-orange-400 border border-orange-900 rounded px-1.5 py-0.5">discovered</span>'
+    ? `<span class="text-xs text-orange-400 border border-orange-900 rounded px-1.5 py-0.5">${t('discovered_badge')}</span>`
     : '';
 
   return `<div class="card rounded-xl p-4">
@@ -793,7 +1234,7 @@ async function loadResults() {
   _auditResultsCache = Array.isArray(results) ? results : [];
 
   if (!_auditResultsCache.length) {
-    el.innerHTML = '<p class="text-slate-500 text-sm">No audit results yet.</p>';
+    el.innerHTML = `<p class="text-slate-500 text-sm">${t('no_results')}</p>`;
     return;
   }
 
@@ -2003,7 +2444,7 @@ function snTab(name) {
     const fmtTs2 = (ts) => ts ? new Date(ts*1000).toLocaleString('fr-FR') : '—';
 
     if (!feedRows.length) {
-      body.innerHTML = '<div class="text-slate-500 italic text-xs mt-2">Aucun feed configuré sur ce nœud.</div>';
+      body.innerHTML = `<div class="text-slate-500 italic text-xs mt-2">${t('sn_no_feed')}</div>`;
       return;
     }
 
@@ -2323,7 +2764,7 @@ function connTab(name) {
 
     body.innerHTML = `<div class="space-y-4">
       <div>
-        <div class="text-blue-400 font-bold mb-1">Sortantes — config</div>
+        <div class="text-blue-400 font-bold mb-1">${t('outgoing_config')}</div>
         ${rows(cfgOut, c => `<div class="flex items-center gap-2 py-0.5">
           <span class="text-blue-400">→</span>
           <span class="text-slate-300">${esc(c.target)}</span><span class="text-slate-500">:${esc(String(c.port))}</span>
@@ -2331,7 +2772,7 @@ function connTab(name) {
           <span class="bg-slate-800 px-1 rounded text-slate-500">${esc(c.label)}</span></div>`)}
       </div>
       <div>
-        <div class="text-green-400 font-bold mb-1">Sortantes — live TCP</div>
+        <div class="text-green-400 font-bold mb-1">${t('outgoing_live')}</div>
         ${rows(liveOut, c => `<div class="flex items-center gap-2 py-0.5">
           <span class="text-green-400">→</span>
           <span class="text-slate-300">${esc(c.target)}</span><span class="text-slate-500">:${esc(String(c.port))}</span>
@@ -2339,7 +2780,7 @@ function connTab(name) {
           <span class="text-slate-600 ml-auto">${esc(_connIpToName[c.target]||'')}</span></div>`)}
       </div>
       <div>
-        <div class="text-orange-400 font-bold mb-1">Entrantes — live TCP</div>
+        <div class="text-orange-400 font-bold mb-1">${t('incoming_live')}</div>
         ${rows(liveIn, c => `<div class="flex items-center gap-2 py-0.5">
           <span class="text-orange-400">←</span>
           <span class="text-slate-300">${esc(c.source)}</span><span class="text-slate-500">:${esc(String(c.srcPort))}</span>
@@ -2443,15 +2884,15 @@ function connTab(name) {
       </div>
       <div class="grid grid-cols-2 gap-4">
         <div class="px-3 py-2 rounded bg-slate-900 border border-slate-800">
-          <div class="text-blue-400 font-bold text-xs uppercase mb-2">Nœuds</div>
+          <div class="text-blue-400 font-bold text-xs uppercase mb-2">${t('section_nodes')}</div>
           <table class="w-full text-xs"><tbody>
             <tr><td class="py-0.5 pr-4 text-slate-500">Total</td><td class="text-white font-bold">${clNodes}</td></tr>
             ${clData ? `<tr><td class="py-0.5 pr-4 text-slate-500">Data</td><td class="text-slate-300">${clData}</td></tr>` : ''}
-            ${res.discovered_es_nodes && res.discovered_es_nodes.length ? `<tr><td class="py-0.5 pr-4 text-slate-500">Découverts</td><td class="text-cyan-300">${res.discovered_es_nodes.length}</td></tr>` : ''}
+            ${res.discovered_es_nodes && res.discovered_es_nodes.length ? `<tr><td class="py-0.5 pr-4 text-slate-500">${t('section_discovered')}</td><td class="text-cyan-300">${res.discovered_es_nodes.length}</td></tr>` : ''}
           </tbody></table>
         </div>
         <div class="px-3 py-2 rounded bg-slate-900 border border-slate-800">
-          <div class="text-blue-400 font-bold text-xs uppercase mb-2">Shards</div>
+          <div class="text-blue-400 font-bold text-xs uppercase mb-2">${t('section_shards')}</div>
           <table class="w-full text-xs"><tbody>
             <tr><td class="py-0.5 pr-4 text-slate-500">Total</td><td class="text-white font-bold">${clShards}</td></tr>
             <tr><td class="py-0.5 pr-4 text-slate-500">Primaires</td><td class="text-slate-300">${clPri}</td></tr>
@@ -2470,13 +2911,13 @@ function connTab(name) {
         </div>
         ${res.es_seed_hosts && res.es_seed_hosts.length ? `
         <div class="px-3 py-2 rounded bg-slate-900 border border-slate-800">
-          <div class="text-blue-400 font-bold text-xs uppercase mb-2">Seed Hosts</div>
+          <div class="text-blue-400 font-bold text-xs uppercase mb-2">${t('section_seed_hosts')}</div>
           ${res.es_seed_hosts.map(h => `<div class="text-cyan-300 font-mono text-xs">${esc(h)}</div>`).join('')}
         </div>` : ''}
       </div>
       ${res.discovered_es_nodes && res.discovered_es_nodes.length ? `
       <div>
-        <div class="text-blue-400 font-bold text-xs uppercase mb-2">Nœuds découverts</div>
+        <div class="text-blue-400 font-bold text-xs uppercase mb-2">${t('section_discovered')}</div>
         <table class="w-full text-xs"><thead>
           <tr class="text-slate-500 border-b border-slate-800"><th class="pb-1 pr-4 text-left">IP</th><th class="pb-1 text-left">Nom</th></tr>
         </thead><tbody>
@@ -2792,7 +3233,7 @@ async function clearAudit() {
     if (d.ok) {
       badge.classList.add('hidden');
       document.getElementById('diagram-inner').innerHTML =
-        '<p class="text-slate-500 text-sm">Run an audit to generate the infrastructure diagram.</p>';
+        `<p class="text-slate-500 text-sm">${t('no_diagram')}</p>`;
       document.getElementById('results-list').innerHTML = '';
     }
   } catch(e) {
@@ -2967,7 +3408,7 @@ function pollAnalysisStatus() {
       const txt   = document.getElementById('analysis-badge-text');
       if (d.status === 'running') {
         badge.classList.remove('hidden');
-        txt.textContent = d.progress || 'Analyse en cours…';
+        txt.textContent = d.progress || t('analysis_running');
         // Show partial results incrementally if analysis tab is open
         const panel = document.getElementById('panel-analysis');
         if (!panel.classList.contains('hidden')) {
@@ -3008,7 +3449,7 @@ async function retryAnalysis() {
   if (!r.ok) { alert('Could not start analysis: ' + await r.text()); return; }
   const badge = document.getElementById('analysis-badge');
   badge.classList.remove('hidden');
-  document.getElementById('analysis-badge-text').textContent = 'Analysis in progress…';
+  document.getElementById('analysis-badge-text').textContent = t('analysis_running');
   pollAnalysisStatus();
 }
 
@@ -3033,18 +3474,18 @@ function renderAnalysis(data) {
     results.classList.add('hidden');
     // Show status if running or error
     if (data.status === 'running') {
-      idle.textContent = 'Analysis in progress… please wait.';
+      idle.textContent = t('analysis_running');
     } else if (data.status === 'error') {
       const isRateLimit = (data.error || '').includes('429') || (data.error || '').includes('rate_limit');
-      const errLabel = isRateLimit ? 'Rate limited (Anthropic API 429)' : ('Analysis failed: ' + (data.error || 'unknown error'));
+      const errLabel = isRateLimit ? t('error_rate_limit') : (t('analysis_failed') + ': ' + (data.error || 'unknown error'));
       idle.innerHTML = `<div class="flex flex-col items-center gap-3">
         <span class="text-red-400">${errLabel}</span>
         <button onclick="retryAnalysis()" class="btn btn-ghost text-xs px-3 py-1 border border-purple-700 text-purple-300 hover:text-white">
-          Retry Analysis
+          ${t('btn_retry_analysis')}
         </button>
       </div>`;
     } else if (data.status === 'idle') {
-      idle.innerHTML = 'Analysis will run automatically after the next audit. Run an audit to generate AI findings.';
+      idle.innerHTML = t('analysis_idle');
     }
     return;
   }
@@ -3063,7 +3504,7 @@ function renderAnalysis(data) {
   const firstTab = prevActiveTab && allTabs.includes(prevActiveTab) ? prevActiveTab : allTabs[0];
 
   allTabs.forEach((tabId, idx) => {
-    const label = tabId === '_CORRELATIONS' ? 'Cross-Correlations'
+    const label = tabId === '_CORRELATIONS' ? t('cross_correlations_tab')
                 : tabId.replace(/_/g,' ');
     const isFirst = tabId === firstTab;
     const tabEl = document.createElement('div');
@@ -3157,7 +3598,7 @@ function _renderModule(mod) {
   const lfSources = (mod.analyzed_logs || []);
   const sourcesHtml = (cfSources.length || lfSources.length) ? `
     <div class="mt-2 text-xs text-slate-600 border-t border-slate-800 pt-2">
-      <span class="text-slate-500 mr-1">Analyzed:</span>
+      <span class="text-slate-500 mr-1">${t('analyzed')}:</span>
       ${cfSources.map(p => `<code class="bg-slate-800 text-slate-400 px-1 rounded mr-1">${_esc(p)}</code>`).join('')}
       ${lfSources.map(k => `<span class="bg-indigo-950 text-indigo-400 px-1.5 rounded mr-1">${_esc(k)} logs</span>`).join('')}
     </div>` : '';
@@ -3172,8 +3613,8 @@ function _renderModule(mod) {
     ${mod.summary ? `<p class="text-slate-400 text-xs mb-2 italic">${_esc(mod.summary)}</p>` : ''}
     ${sourcesHtml}
   </div>
-  ${cfCount ? `<h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 mt-0 px-1">Configuration (${cfCount})</h3>` + _renderFindingsList(mod.config_findings, 'config findings') : ''}
-  ${lfCount ? `<h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 mt-4 px-1">Log Analysis (${lfCount})</h3>` + _renderFindingsList(mod.log_findings, 'log findings') : ''}`;
+  ${cfCount ? `<h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 mt-0 px-1">${t('cfg_findings')} (${cfCount})</h3>` + _renderFindingsList(mod.config_findings, 'config findings') : ''}
+  ${lfCount ? `<h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 mt-4 px-1">${t('log_findings')} (${lfCount})</h3>` + _renderFindingsList(mod.log_findings, 'log findings') : ''}`;
 }
 
 async function loadSettingsValues() {
@@ -3277,6 +3718,8 @@ async function init() {
     }
   } catch(e) {}
   loadSettingsValues();
+  // Apply i18n on startup (sets active-lang on buttons + translates data-i18n elements)
+  applyLang();
 }
 
 init();
