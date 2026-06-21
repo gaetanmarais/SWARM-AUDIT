@@ -1,6 +1,6 @@
-# Version: 2.5.0
-# Date:    2026-06-20
-# Notes:   Add is_discovered/discovered_source on AuditResult; DiscoveryRun accepts idle status
+# Version: 2.6.0
+# Date:    2026-06-21
+# Notes:   Add swarmctl_feeds to AuditResult; analyzed_configs/logs to AnalysisModule
 
 from __future__ import annotations
 from typing import Optional, Literal
@@ -177,6 +177,8 @@ class AuditResult(BaseModel):
     connections: list[NetConnection] = []
     # Application logs — last 24h, deduplicated, keyed by role name
     logs: dict[str, str] = {}
+    # Feed replication data from swarmctl -Q feeds (raw text, may be None if unavailable)
+    swarmctl_feeds: Optional[str] = None
 
 
 # ─── Auto-discovery ───────────────────────────────────────────────────────────
@@ -234,6 +236,8 @@ class AnalysisModule(BaseModel):
     summary: str = ""
     config_findings: list[AnalysisFinding] = []
     log_findings: list[AnalysisFinding] = []
+    analyzed_configs: list[str] = []   # config file paths included in the analysis prompt
+    analyzed_logs: list[str] = []      # log source keys included in the analysis prompt
 
 
 class AnalysisResult(BaseModel):

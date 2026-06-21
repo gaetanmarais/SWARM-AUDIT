@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Version: 2.18.0
-# Date:    2026-06-20
-# Notes:   Add NTP/syslog client collection, keepalived unicast peers; fix _has_role early-call bug.
+# Version: 2.19.0
+# Date:    2026-06-21
+# Notes:   Add scsctl storage cluster show; swarmctl -Q feeds collection for FEED analysis.
 
 set -euo pipefail
 
@@ -599,6 +599,10 @@ if _has_role "SCS" && command -v scsctl &>/dev/null 2>&1; then
     _inject_scsctl "scsctl://storage/config"  "$_scsctl_storage"
     _inject_scsctl "scsctl://platform/config" "$_scsctl_platform"
 
+    # scsctl storage cluster show -d → live cluster topology (nodes, domains, streams)
+    _scsctl_cluster=$(scsctl storage cluster show -d 2>/dev/null | head -c 8192 || true)
+    _inject_scsctl "scsctl://storage/cluster" "$_scsctl_cluster"
+
     # Rebuild JSON with the new entries
     [ -n "$_cf" ]       && CONFIG_FILES="[${_cf}]"
     [ -n "$_cc_pairs" ] && CONFIG_CONTENTS="{${_cc_pairs}}"
@@ -851,6 +855,17 @@ print(json.dumps(obj))
         done
 
         [ -n "$_sn" ] && DISCOVERED_STORAGE_NODES="[${_sn}]"
+    fi
+fi
+
+# ─── Feed replication data via swarmctl -Q feeds ──────────────────────────────
+# swarmctl -Q feeds returns the cluster-wide feed definitions and their live state.
+# Use a short timeout — this command may not exist on all versions; || true is safe.
+SWARMCTL_FEEDS="null"
+if [ -n "$_cl_ip" ] && [ -n "$_swarmctl" ]; then
+    _feeds_raw=$(timeout 15 "$_swarmctl" -d "$_cl_ip" -Q feeds 2>/dev/null || true)
+    if [ -n "$_feeds_raw" ]; then
+        SWARMCTL_FEEDS="\"$(jq_escape "$_feeds_raw")\""
     fi
 fi
 
@@ -1144,6 +1159,7 @@ cat <<EOF
   "es_node_stats": "$(jq_escape "$ES_NODE_STATS")",
   "es_cat_alloc": "$(jq_escape "$ES_CAT_ALLOC")",
   "es_disk_info": $ES_DISK_INFO,
+  "swarmctl_feeds": $SWARMCTL_FEEDS,
   "ntp_client_servers": $NTP_CLIENT_SERVERS,
   "syslog_targets": $SYSLOG_TARGETS,
   "keepalived_peers": $KEEPALIVED_PEERS,

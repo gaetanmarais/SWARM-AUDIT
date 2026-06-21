@@ -1,6 +1,6 @@
-# Version: 3.5.2
-# Date:    2026-06-20
-# Notes:   Fix JSON truncation — cap max_tokens at 8000, add conciseness constraint
+# Version: 3.6.0
+# Date:    2026-06-21
+# Notes:   Track analyzed_configs/logs per module; add FEED analysis from healthreport Feed Table + swarmctl feeds
 
 from __future__ import annotations
 import asyncio
@@ -376,6 +376,7 @@ ROLE_ORDER = [
     "LISTING_CACHE_SERVER", "LISTING_CACHE",
     "ELASTICSEARCH",
     "CASTOR", "STORAGE_NODE",
+    "FEED",
     "TELEMETRY",
     "FOUNDATION_DB", "SWARMFS", "CONTENT_UI", "STORAGE_UI",
     "UNKNOWN",
@@ -580,6 +581,21 @@ async def _analyze_role_group(
         log.info("Analyzing role group: %s (%d servers, ~%d chars)…",
                  role, len(servers), len(prompt))
 
+        # Track which config files and log sources were included in the prompt
+        analyzed_configs: list[str] = []
+        analyzed_logs: list[str] = []
+        seen_c: set[str] = set()
+        seen_l: set[str] = set()
+        for r in servers:
+            for path in list(r.config_contents.keys())[:8]:
+                if path not in seen_c:
+                    seen_c.add(path)
+                    analyzed_configs.append(path)
+            for role_key, log_text in r.logs.items():
+                if log_text and role_key not in seen_l:
+                    seen_l.add(role_key)
+                    analyzed_logs.append(role_key)
+
         try:
             raw = await loop.run_in_executor(
                 None, _call_claude_sync,
@@ -593,6 +609,8 @@ async def _analyze_role_group(
                 summary=data.get("summary", ""),
                 config_findings=_parse_findings(data.get("config_findings", [])),
                 log_findings=_parse_findings(data.get("log_findings", [])),
+                analyzed_configs=analyzed_configs,
+                analyzed_logs=analyzed_logs,
             )
         except Exception as exc:
             log.error("Role group %s analysis failed: %s", role, exc)
@@ -602,6 +620,8 @@ async def _analyze_role_group(
                 summary=f"Analysis failed: {exc}",
                 config_findings=[],
                 log_findings=[],
+                analyzed_configs=analyzed_configs,
+                analyzed_logs=analyzed_logs,
             )
 
 
@@ -696,6 +716,186 @@ async def _run_synthesis(
     return _parse_findings(data.get("cross_correlations", []))
 
 
+# ── Feed analysis ────────────────────────────────────────────────────────────
+
+def _build_feed_context(results: list[AuditResult]) -> Optional[str]:
+    """Aggregate Feed Table data from all storage nodes' SNMP healthreports.
+    Returns a text block suitable for the Claude prompt, or None if no feed data."""
+    feeds: dict[str, dict] = {}  # feedName → aggregated data across nodes
+
+    for r in results:
+        if not r.success:
+            continue
+        for sn in r.discovered_storage_nodes or []:
+            if not sn.health_report:
+                continue
+            tbls = sn.health_report.get("SNMP tables", {})
+            feed_tbl = tbls.get("Feed Table", {})
+            feed_names = feed_tbl.get("feedName", [])
+            if not feed_names:
+                continue
+
+            def _col(key: str, idx: int) -> str:
+                col = feed_tbl.get(key, [])
+                return str(col[idx]) if isinstance(col, list) and idx < len(col) else ""
+
+            for i, fname in enumerate(feed_names):
+                if not fname:
+                    continue
+                if fname not in feeds:
+                    feeds[fname] = {
+                        "nodes": [], "states": [], "plugin_states": [],
+                        "types": [], "queue_in_svc": [], "streams_pm": [],
+                        "fail_causes": [], "versioned_ok": [], "versioned_fail": [],
+                        "versioned_pend": [], "exists_ok": [], "exists_fail": [],
+                        "deletes_ok": [], "deletes_fail": [], "definitions": [],
+                    }
+                e = feeds[fname]
+                e["nodes"].append(sn.ip)
+                e["states"].append(_col("feedState", i))
+                e["plugin_states"].append(_col("feedPluginState", i))
+                e["types"].append(_col("feedType", i))
+                e["queue_in_svc"].append(_col("feedQueueInService", i))
+                e["streams_pm"].append(_col("feedStreamsPerMinLastHour", i))
+                cause = (_col("feedLastVersionedFailureCause", i)
+                         or _col("feedLastExistFailureCause", i)
+                         or _col("feedLastDeleteFailureCause", i))
+                if cause:
+                    e["fail_causes"].append(f"  node {sn.ip}: {cause}")
+                e["versioned_ok"].append(_col("feedNodeVersionedSuccess", i))
+                e["versioned_fail"].append(_col("feedNodeVersionedFailing", i))
+                e["versioned_pend"].append(_col("feedNodeVersionedUnprocessed", i))
+                e["exists_ok"].append(_col("feedNodeExistsSuccess", i))
+                e["exists_fail"].append(_col("feedNodeExistsFailing", i))
+                e["deletes_ok"].append(_col("feedNodeDeletesSuccess", i))
+                e["deletes_fail"].append(_col("feedNodeDeletesFailing", i))
+                defn = _col("feedDefinition", i)
+                if defn and defn not in e["definitions"]:
+                    e["definitions"].append(defn[:300])
+
+    if not feeds:
+        return None
+
+    lines = ["=== CLUSTER FEEDS (aggregated from SNMP healthreports) ==="]
+    for fname in sorted(feeds.keys()):
+        e = feeds[fname]
+        n = len(e["nodes"])
+        ftype = "/".join(sorted(set(t for t in e["types"] if t)))
+        states = ", ".join(f"{e['nodes'][i]}={e['states'][i]}" for i in range(n))
+        paused = [e["nodes"][i] for i in range(n) if e["states"][i].lower() == "paused"]
+        error_nodes = [e["nodes"][i] for i in range(n) if e["states"][i].lower() == "error"]
+        vfail = [e["nodes"][i] for i in range(n) if int(e["versioned_fail"][i] or 0) > 0]
+        efail = [e["nodes"][i] for i in range(n) if int(e["exists_fail"][i] or 0) > 0]
+        dfail = [e["nodes"][i] for i in range(n) if int(e["deletes_fail"][i] or 0) > 0]
+        zero_spm = [e["nodes"][i] for i in range(n) if float(e["streams_pm"][i] or 0) == 0]
+        lines += [
+            "",
+            f"FEED: {fname}  type={ftype}  nodes={n}",
+            f"  States: {states}",
+            f"  Paused: {paused or 'none'}  Errors: {error_nodes or 'none'}",
+            f"  Streams/min: {'/'.join(e['streams_pm'])}  Zero-rate nodes: {zero_spm or 'none'}",
+            f"  Queue in svc: {'/'.join(e['queue_in_svc'])}",
+            f"  Versioned — ok: {'/'.join(e['versioned_ok'])}  fail: {'/'.join(e['versioned_fail'])}  pend: {'/'.join(e['versioned_pend'])}",
+            f"  Exists     — ok: {'/'.join(e['exists_ok'])}  fail: {'/'.join(e['exists_fail'])}",
+            f"  Deletes    — ok: {'/'.join(e['deletes_ok'])}  fail: {'/'.join(e['deletes_fail'])}",
+        ]
+        if vfail or efail or dfail:
+            lines.append(f"  Failing nodes: versioned={vfail}  exists={efail}  deletes={dfail}")
+        if e["fail_causes"]:
+            lines.append("  Failure causes:")
+            lines.extend(e["fail_causes"][:5])
+        if e["definitions"]:
+            lines.append(f"  Definition: {e['definitions'][0]}")
+    return "\n".join(lines)
+
+
+async def _analyze_feeds(
+    results: list[AuditResult],
+    rag_cache: dict[int, str],
+    sem: asyncio.Semaphore,
+    want_direct: bool,
+    api_key: str,
+    mcp_url: str,
+    mcp_token: str,
+    cancel_flag: list[bool],
+    loop: asyncio.AbstractEventLoop,
+) -> Optional[AnalysisModule]:
+    """Dedicated FEED analysis — aggregates Feed Table data across all storage nodes."""
+    async with sem:
+        if cancel_flag[0]:
+            raise asyncio.CancelledError()
+
+        feed_ctx = _build_feed_context(results)
+        if not feed_ctx:
+            return None
+
+        # Collect swarmctl -Q feeds text if available on any server
+        feeds_raw_parts = [r.swarmctl_feeds for r in results if r.swarmctl_feeds]
+        feeds_raw_block = ""
+        if feeds_raw_parts:
+            feeds_raw_block = "\n\nswarmctl -Q feeds output:\n" + "\n---\n".join(feeds_raw_parts)[:4000]
+
+        rag_parts = [rag_cache[i] for i in _ALL_RAG_INDICES if i in rag_cache]
+        rag_block = ""
+        if rag_parts:
+            rag_block = "\nSWARM KNOWLEDGE BASE:\n" + "\n\n".join(rag_parts[:6])[:10000]
+
+        source_servers = sorted({
+            r.server_name for r in results
+            if r.success and any(
+                sn.health_report and sn.health_report.get("SNMP tables", {}).get("Feed Table", {}).get("feedName")
+                for sn in r.discovered_storage_nodes or []
+            )
+        })
+
+        system = (
+            "You are a senior DataCore Swarm infrastructure architect performing a feed replication audit.\n"
+            "DataCore Swarm feeds replicate objects between storage domains or to external targets (FileFly, S3, etc.).\n"
+            "Analyze the feed data below. Focus on:\n"
+            "  - Feeds in error or paused state (state != 'active'): always CRITICAL or WARNING.\n"
+            "  - Feeds with persistent failures (versioned/exists/deletes failing > 0): CRITICAL if non-zero.\n"
+            "  - Feeds with high pending queue or zero streams/min: WARNING (potential stall).\n"
+            "  - Asymmetric feeds (present on some nodes but not others): WARNING.\n"
+            "  - Feed definition review: RAID, target domain, policy settings.\n"
+            "  - Active healthy feeds should be marked OK.\n"
+            "Return ONLY valid JSON — no text, no markdown, no code fences.\n"
+            "CRITICAL: Return a single complete valid JSON object.\n"
+            "Limit config_findings to 5 entries max. Limit log_findings to 3 entries max.\n"
+            "The 'servers' field in each finding must list the affected storage node IPs (not server names).\n"
+            "Severity: CRITICAL (feed errors/failures), WARNING (stalled/paused), INFO (observation), OK (healthy).\n"
+        )
+        prompt = (
+            f"ROLE TO ANALYZE: FEED\n\n"
+            f"FEED DATA:\n{feed_ctx}"
+            f"{feeds_raw_block}"
+            f"{rag_block}\n\n"
+            f"Analyze all feeds. Return ONLY a JSON object for role FEED:\n{MODULE_SCHEMA}"
+        )
+
+        log.info("Analyzing FEED group (%d storage nodes with feed data)…", len(source_servers))
+
+        try:
+            raw = await loop.run_in_executor(
+                None, _call_claude_sync,
+                prompt, system, want_direct, api_key, mcp_url, mcp_token,
+            )
+            raw = _strip_fences(raw)
+            data = _parse_json_robust(raw)
+            return AnalysisModule(
+                role="FEED",
+                servers=source_servers,
+                summary=data.get("summary", ""),
+                config_findings=_parse_findings(data.get("config_findings", [])),
+                log_findings=_parse_findings(data.get("log_findings", [])),
+                analyzed_configs=[],
+                analyzed_logs=["Feed Table (SNMP healthreport per storage node)"]
+                + (["swarmctl -Q feeds"] if feeds_raw_parts else []),
+            )
+        except Exception as exc:
+            log.error("FEED analysis failed: %s", exc)
+            return None
+
+
 # ── Orchestrator ─────────────────────────────────────────────────────────────
 
 async def run_analysis(
@@ -740,8 +940,17 @@ async def run_analysis(
 
     # ── 1. Group servers by role ─────────────────────────────────────────────
     role_groups = _group_by_role(results)
-    n_groups = len(role_groups)
-    log.info("Phase 1: %d role groups identified: %s", n_groups, list(role_groups.keys()))
+    # Check if FEED analysis is possible (requires storage nodes with Feed Table data)
+    has_feed_data = any(
+        any(
+            sn.health_report and sn.health_report.get("SNMP tables", {}).get("Feed Table", {}).get("feedName")
+            for sn in r.discovered_storage_nodes or []
+        )
+        for r in results if r.success
+    )
+    n_groups = len(role_groups) + (1 if has_feed_data else 0)
+    log.info("Phase 1: %d role groups identified: %s%s",
+             n_groups, list(role_groups.keys()), " + FEED" if has_feed_data else "")
 
     # ── 2. Fetch RAG upfront (deduplicated) ──────────────────────────────────
     needed: set[int] = set()
@@ -785,6 +994,24 @@ async def run_analysis(
         _analyze_with_cb(role, servers)
         for role, servers in role_groups.items()
     ]
+
+    # Add FEED task if feed data is available
+    if has_feed_data:
+        async def _feed_with_cb() -> Optional[AnalysisModule]:
+            nonlocal done_count
+            module = await _analyze_feeds(
+                results, rag_cache, sem,
+                want_direct, anthropic_api_key, mcp_url, mcp_token,
+                cancel_flag, loop,
+            )
+            done_count += 1
+            if on_progress:
+                on_progress(f"Phase 1/2 — {done_count}/{n_groups} roles done…")
+            if module and on_module_done:
+                on_module_done(module)
+            return module
+        tasks.append(_feed_with_cb())
+
     modules_raw = await asyncio.gather(*tasks, return_exceptions=True)
     modules = [m for m in modules_raw if isinstance(m, AnalysisModule)]
 

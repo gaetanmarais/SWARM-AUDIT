@@ -162,6 +162,7 @@ async def audit_server(
                 syslog_targets=data.get("syslog_targets", []),
                 keepalived_peers=data.get("keepalived_peers", []),
                 logs=data.get("logs", {}),
+                swarmctl_feeds=data.get("swarmctl_feeds"),
             )
 
     except asyncio.TimeoutError:

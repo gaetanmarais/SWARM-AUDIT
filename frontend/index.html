@@ -697,8 +697,21 @@ function _resultCardHtml(res) {
     ? '<span class="text-green-400">✓</span>'
     : (res._discovered ? '<span class="text-orange-400">◈</span>' : '<span class="text-red-400">✗</span>');
 
-  const esCluster = res.es_cluster_name
-    ? `<div class="mt-1 text-xs"><span class="text-slate-500">ES cluster</span> <code class="bg-purple-900 text-purple-200 px-1.5 py-0.5 rounded">${esc(res.es_cluster_name)}</code></div>`
+  // Extract ES health status from es_cat_health for the card badge
+  let _esHealthStatus = '';
+  if (res.es_cat_health) {
+    const _hRaw = res.es_cat_health.replace(/\\n/g, '\n').trim().split('\n').filter(l => l.trim());
+    if (_hRaw.length >= 2) {
+      const _hHdr = _hRaw[0].trim().split(/\s+/);
+      const _hVal = _hRaw[1].trim().split(/\s+/);
+      _esHealthStatus = _hVal[_hHdr.indexOf('status')] || '';
+    }
+  }
+  const _esHealthBadge = _esHealthStatus
+    ? `<span class="px-1.5 py-0.5 rounded text-xs font-bold mr-1 ${_esHealthStatus==='green'?'bg-green-900 text-green-300':_esHealthStatus==='red'?'bg-red-900 text-red-300':'bg-yellow-900 text-yellow-300'}">${_esHealthStatus.toUpperCase()}</span>`
+    : '';
+  const esCluster = (res.es_cluster_name || _esHealthStatus)
+    ? `<div class="mt-1 text-xs">${_esHealthBadge}<span class="text-slate-500">ES</span> <code class="bg-purple-900 text-purple-200 px-1.5 py-0.5 rounded">${esc(res.es_cluster_name||'—')}</code></div>`
     : '';
   const swarmSummary = res.swarm_cluster_summary
     ? `<div class="mt-1 text-xs text-slate-400"><span class="text-slate-500">Swarm</span> ${esc(res.swarm_cluster_summary)}</div>`
@@ -2473,6 +2486,42 @@ function connTab(name) {
         </tr>`).join('')}
         </tbody></table>
       </div>` : ''}
+      ${(() => {
+        const esYml = (res.config_contents || {})['/etc/elasticsearch/elasticsearch.yml'];
+        if (!esYml) return '';
+        const raw = esYml.replace(/\\n/g, '\n');
+        const pick = (key) => {
+          const m = raw.match(new RegExp(`^\\s*${key.replace(/\./g,'\\.')}\\s*:\\s*(.+)$`,'m'));
+          return m ? m[1].trim().replace(/^["']|["']$/g,'') : null;
+        };
+        const rows = [
+          ['node.name',                        pick('node.name')],
+          ['node.roles',                        pick('node.roles')],
+          ['network.host',                      pick('network.host')],
+          ['path.data',                         pick('path.data')],
+          ['path.logs',                         pick('path.logs')],
+          ['bootstrap.memory_lock',             pick('bootstrap.memory_lock')],
+          ['xpack.security.enabled',            pick('xpack.security.enabled')],
+          ['xpack.security.http.ssl.enabled',   pick('xpack.security.http.ssl.enabled')],
+          ['thread_pool.search.size',           pick('thread_pool.search.size')],
+          ['indices.memory.index_buffer_size',  pick('indices.memory.index_buffer_size')],
+          ['action.destructive_requires_name',  pick('action.destructive_requires_name')],
+        ].filter(([,v]) => v !== null);
+        if (!rows.length) return '';
+        const warnKey = (k, v) =>
+          (k === 'bootstrap.memory_lock' && v === 'false') ||
+          (k === 'xpack.security.enabled' && v === 'false') ||
+          (k === 'action.destructive_requires_name' && v === 'false');
+        return `<div>
+          <div class="text-blue-400 font-bold text-xs uppercase mb-1">elasticsearch.yml</div>
+          <div class="px-3 py-2 rounded bg-slate-900 border border-slate-800">
+          <table class="w-full text-xs"><tbody>
+          ${rows.map(([k,v]) => `<tr>
+            <td class="py-0.5 pr-4 text-slate-500 font-mono" style="min-width:14rem">${esc(k)}</td>
+            <td class="py-0.5 font-mono ${warnKey(k,v)?'text-yellow-400 font-bold':'text-slate-300'}">${esc(v)}</td>
+          </tr>`).join('')}
+          </tbody></table></div></div>`;
+      })()}
     </div>`;
 
   } else if (name === 'es-nodes') {
@@ -3100,8 +3149,18 @@ function _renderModule(mod) {
   const allFindings = [...(mod.config_findings||[]), ...(mod.log_findings||[])];
   const crit = allFindings.filter(f => f.severity === 'CRITICAL').length;
   const warn = allFindings.filter(f => f.severity === 'WARNING').length;
-  const summaryBadge = crit ? `<span class="role-badge bg-red-900 text-red-300 ml-2">${crit} CRITICAL</span>` : ''
+  const summaryBadge = (crit ? `<span class="role-badge bg-red-900 text-red-300 ml-2">${crit} CRITICAL</span>` : '')
     + (warn ? `<span class="role-badge bg-yellow-900 text-yellow-300 ml-2">${warn} WARNING</span>` : '');
+
+  // Analyzed sources (config files + log keys included in the prompt)
+  const cfSources = (mod.analyzed_configs || []);
+  const lfSources = (mod.analyzed_logs || []);
+  const sourcesHtml = (cfSources.length || lfSources.length) ? `
+    <div class="mt-2 text-xs text-slate-600 border-t border-slate-800 pt-2">
+      <span class="text-slate-500 mr-1">Analyzed:</span>
+      ${cfSources.map(p => `<code class="bg-slate-800 text-slate-400 px-1 rounded mr-1">${_esc(p)}</code>`).join('')}
+      ${lfSources.map(k => `<span class="bg-indigo-950 text-indigo-400 px-1.5 rounded mr-1">${_esc(k)} logs</span>`).join('')}
+    </div>` : '';
 
   return `
   <div class="card rounded-xl p-4 mb-4 text-sm">
@@ -3110,7 +3169,8 @@ function _renderModule(mod) {
       <span class="text-slate-500 text-xs">— ${_esc(serverStr)}</span>
       ${summaryBadge}
     </div>
-    ${mod.summary ? `<p class="text-slate-400 text-xs mb-4 italic">${_esc(mod.summary)}</p>` : ''}
+    ${mod.summary ? `<p class="text-slate-400 text-xs mb-2 italic">${_esc(mod.summary)}</p>` : ''}
+    ${sourcesHtml}
   </div>
   ${cfCount ? `<h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 mt-0 px-1">Configuration (${cfCount})</h3>` + _renderFindingsList(mod.config_findings, 'config findings') : ''}
   ${lfCount ? `<h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 mt-4 px-1">Log Analysis (${lfCount})</h3>` + _renderFindingsList(mod.log_findings, 'log findings') : ''}`;
