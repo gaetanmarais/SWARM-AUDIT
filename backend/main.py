@@ -1,6 +1,6 @@
-# Version: 1.13.0
-# Date:    2026-06-20
-# Notes:   APP_VERSION watermark in SVG; /api/discover/results adds signals; collected_at in diagram
+# Version: 1.14.0
+# Date:    2026-06-21
+# Notes:   /api/system/version, /api/system/check-update, /api/system/update endpoints
 
 from __future__ import annotations
 import asyncio
@@ -8,6 +8,8 @@ import json
 import logging
 import os
 import re
+import signal
+import subprocess
 import urllib.request
 import uuid
 from datetime import datetime, timezone
@@ -700,6 +702,94 @@ class ImportBody(PydanticBaseModel):
     credentials: list[dict] = []   # ignored in v2 exports; still accepted for backwards compat
     servers: list[dict] = []
     mode: str = "merge"   # "merge" | "replace"
+
+
+@app.get("/api/system/version")
+async def system_version():
+    """Return the current git commit hash and date."""
+    repo = os.environ.get("SWARM_REPO_DIR", "/app/repo")
+    try:
+        h = subprocess.check_output(
+            ["git", "-C", repo, "rev-parse", "--short", "HEAD"],
+            timeout=5, text=True, stderr=subprocess.DEVNULL,
+        ).strip()
+        msg = subprocess.check_output(
+            ["git", "-C", repo, "log", "-1", "--format=%s (%ci)"],
+            timeout=5, text=True, stderr=subprocess.DEVNULL,
+        ).strip()
+        branch = subprocess.check_output(
+            ["git", "-C", repo, "rev-parse", "--abbrev-ref", "HEAD"],
+            timeout=5, text=True, stderr=subprocess.DEVNULL,
+        ).strip()
+    except Exception as e:
+        return {"hash": "unknown", "message": str(e), "branch": "unknown"}
+    return {"hash": h, "message": msg, "branch": branch}
+
+
+@app.get("/api/system/check-update")
+async def system_check_update():
+    """Compare local HEAD with GitHub latest commit on main."""
+    repo = os.environ.get("SWARM_REPO_DIR", "/app/repo")
+    remote = os.environ.get("SWARM_REPO_REMOTE", "https://github.com/gaetanmarais/SWARM-AUDIT.git")
+    try:
+        local_hash = subprocess.check_output(
+            ["git", "-C", repo, "rev-parse", "HEAD"],
+            timeout=5, text=True, stderr=subprocess.DEVNULL,
+        ).strip()
+    except Exception as e:
+        return {"error": f"Cannot read local hash: {e}"}
+
+    # Extract owner/repo from remote URL
+    m = re.search(r"github\.com[:/](.+?)(?:\.git)?$", remote)
+    if not m:
+        return {"error": "Cannot parse remote URL"}
+    gh_repo = m.group(1)
+    api_url = f"https://api.github.com/repos/{gh_repo}/commits/main"
+    try:
+        req = urllib.request.Request(api_url, headers={"User-Agent": "arcis-swarm/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+        remote_hash = data["sha"]
+        remote_msg  = data["commit"]["message"].split("\n")[0]
+        remote_date = data["commit"]["author"]["date"]
+    except Exception as e:
+        return {"error": f"GitHub API error: {e}"}
+
+    return {
+        "local_hash":   local_hash[:7],
+        "remote_hash":  remote_hash[:7],
+        "up_to_date":   local_hash == remote_hash or local_hash[:7] == remote_hash[:7],
+        "remote_message": remote_msg,
+        "remote_date":  remote_date,
+    }
+
+
+@app.post("/api/system/update")
+async def system_update(background_tasks: BackgroundTasks):
+    """Pull latest code from GitHub and restart the container."""
+    repo = os.environ.get("SWARM_REPO_DIR", "/app/repo")
+
+    async def _do_update():
+        await asyncio.sleep(0.8)   # let the HTTP response reach the browser first
+        log.info("Self-update: running git pull in %s…", repo)
+        try:
+            result = subprocess.run(
+                ["git", "-C", repo, "pull", "--ff-only", "origin", "main"],
+                capture_output=True, text=True, timeout=60,
+            )
+            if result.returncode != 0:
+                log.error("git pull failed (rc=%d): %s", result.returncode, result.stderr)
+                return
+            log.info("git pull OK: %s", result.stdout.strip())
+        except Exception as e:
+            log.error("git pull exception: %s", e)
+            return
+        await asyncio.sleep(0.5)
+        log.info("Self-update: killing PID 1 (SIGTERM) — restart policy will restart container")
+        os.kill(1, signal.SIGTERM)
+
+    background_tasks.add_task(_do_update)
+    return {"status": "update_started"}
 
 
 @app.post("/api/import")

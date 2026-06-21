@@ -347,6 +347,22 @@
         </div>
       </div>
     </div>
+
+    <!-- ── Update section ── -->
+    <div class="card rounded-xl p-5 mt-4">
+      <h3 class="font-semibold text-slate-200 text-sm mb-4">Version &amp; mise à jour</h3>
+      <div class="flex flex-wrap items-center gap-3 mb-3">
+        <div class="text-xs text-slate-400">
+          Version actuelle : <code id="sys-version-hash" class="bg-slate-800 text-cyan-300 px-1.5 py-0.5 rounded">…</code>
+          <span id="sys-version-msg" class="text-slate-500 ml-2"></span>
+        </div>
+        <button onclick="checkUpdate()" class="btn btn-ghost text-xs px-3 py-1">Vérifier</button>
+      </div>
+      <div id="sys-update-status" class="text-xs mb-3 hidden"></div>
+      <button id="sys-update-btn" onclick="doUpdate()" class="btn btn-primary text-xs hidden">
+        Mettre à jour depuis GitHub
+      </button>
+    </div>
   </div>
 
   <!-- ── ANALYSIS TAB ── -->
@@ -3617,6 +3633,86 @@ function _renderModule(mod) {
   ${lfCount ? `<h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 mt-4 px-1">${t('log_findings')} (${lfCount})</h3>` + _renderFindingsList(mod.log_findings, 'log findings') : ''}`;
 }
 
+async function loadSystemVersion() {
+  try {
+    const r = await fetch(API + '/api/system/version');
+    if (!r.ok) return;
+    const d = await r.json();
+    const el = document.getElementById('sys-version-hash');
+    const ml = document.getElementById('sys-version-msg');
+    if (el) el.textContent = d.hash || 'unknown';
+    if (ml) ml.textContent = d.message ? d.message.slice(0, 80) : '';
+  } catch(e) {}
+}
+
+async function checkUpdate() {
+  const status = document.getElementById('sys-update-status');
+  const btn    = document.getElementById('sys-update-btn');
+  status.className = 'text-xs mb-3 text-slate-400';
+  status.textContent = 'Vérification en cours…';
+  status.classList.remove('hidden');
+  btn.classList.add('hidden');
+  try {
+    const r = await fetch(API + '/api/system/check-update');
+    const d = await r.json();
+    if (d.error) {
+      status.className = 'text-xs mb-3 text-red-400';
+      status.textContent = 'Erreur : ' + d.error;
+      return;
+    }
+    if (d.up_to_date) {
+      status.className = 'text-xs mb-3 text-green-400';
+      status.textContent = `À jour — ${d.local_hash}`;
+      btn.classList.add('hidden');
+    } else {
+      status.className = 'text-xs mb-3 text-yellow-300';
+      status.innerHTML = `Mise à jour disponible : <code class="bg-slate-800 px-1 rounded">${esc(d.local_hash)}</code> → <code class="bg-slate-800 px-1 rounded text-cyan-300">${esc(d.remote_hash)}</code> <span class="text-slate-500 ml-1">${esc(d.remote_message||'')}</span>`;
+      btn.classList.remove('hidden');
+    }
+  } catch(e) {
+    status.className = 'text-xs mb-3 text-red-400';
+    status.textContent = 'Erreur réseau : ' + e;
+  }
+}
+
+async function doUpdate() {
+  const status = document.getElementById('sys-update-status');
+  const btn    = document.getElementById('sys-update-btn');
+  btn.disabled = true;
+  btn.textContent = 'Mise à jour…';
+  status.className = 'text-xs mb-3 text-slate-300';
+  status.textContent = 'Pull en cours…';
+  status.classList.remove('hidden');
+
+  try {
+    await fetch(API + '/api/system/update', { method: 'POST' });
+  } catch(e) { /* container is restarting — expected */ }
+
+  // Poll until the API comes back, then reload
+  status.textContent = 'Redémarrage du conteneur…';
+  let attempts = 0;
+  const poll = setInterval(async () => {
+    attempts++;
+    if (attempts > 60) {
+      clearInterval(poll);
+      status.className = 'text-xs mb-3 text-red-400';
+      status.textContent = 'Timeout — vérifiez les logs du conteneur.';
+      btn.disabled = false;
+      btn.textContent = 'Mettre à jour depuis GitHub';
+      return;
+    }
+    try {
+      const r = await fetch(API + '/api/system/version', { cache: 'no-store' });
+      if (r.ok) {
+        clearInterval(poll);
+        status.className = 'text-xs mb-3 text-green-400';
+        status.textContent = 'Mise à jour réussie — rechargement…';
+        setTimeout(() => location.reload(), 1500);
+      }
+    } catch(e) { /* still restarting */ }
+  }, 2000);
+}
+
 async function loadSettingsValues() {
   try {
     const r = await fetch(API+'/api/settings');
@@ -3718,6 +3814,7 @@ async function init() {
     }
   } catch(e) {}
   loadSettingsValues();
+  loadSystemVersion();
   // Apply i18n on startup (sets active-lang on buttons + translates data-i18n elements)
   applyLang();
 }
