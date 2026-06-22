@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <!--
-  Version: 1.18.0
-  Date:    2026-06-21
-  Notes:   i18n system — FR/EN/DE/IT/ES, lang selector in header, localStorage persistence
+  Version: 1.19.0
+  Date:    2026-06-22
+  Notes:   lang selector: dropdown with ISO code + flag emoji (replaces inline buttons)
 -->
 <html lang="en">
 <head>
@@ -59,7 +59,6 @@
   @keyframes spin { to { transform:rotate(360deg); } }
   .pulse { animation:pulse 2s ease-in-out infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
-  .active-lang { color:#fff; font-weight:600; }
 
   table { border-collapse:collapse; }
   th { font-weight:600; letter-spacing:.04em; }
@@ -99,17 +98,15 @@
   </div>
   <div class="flex items-center gap-3">
     <!-- Language selector -->
-    <div class="flex items-center gap-1 text-xs">
-      <button data-lang-btn="fr" onclick="setLang('fr')" class="px-1.5 py-0.5 rounded hover:text-white text-slate-400">FR</button>
-      <span class="text-slate-700">|</span>
-      <button data-lang-btn="en" onclick="setLang('en')" class="px-1.5 py-0.5 rounded hover:text-white text-slate-400">EN</button>
-      <span class="text-slate-700">|</span>
-      <button data-lang-btn="de" onclick="setLang('de')" class="px-1.5 py-0.5 rounded hover:text-white text-slate-400">DE</button>
-      <span class="text-slate-700">|</span>
-      <button data-lang-btn="it" onclick="setLang('it')" class="px-1.5 py-0.5 rounded hover:text-white text-slate-400">IT</button>
-      <span class="text-slate-700">|</span>
-      <button data-lang-btn="es" onclick="setLang('es')" class="px-1.5 py-0.5 rounded hover:text-white text-slate-400">ES</button>
-    </div>
+    <select id="lang-select" onchange="setLang(this.value)"
+      class="text-xs rounded px-1.5 py-0.5 border border-slate-700 bg-transparent cursor-pointer focus:outline-none"
+      style="color:var(--fg-dim)">
+      <option value="fr">🇫🇷 FR</option>
+      <option value="en">🇬🇧 EN</option>
+      <option value="de">🇩🇪 DE</option>
+      <option value="it">🇮🇹 IT</option>
+      <option value="es">🇪🇸 ES</option>
+    </select>
     <!-- Theme toggle -->
     <button id="theme-toggle" onclick="toggleTheme()"
       class="btn btn-ghost flex items-center gap-1.5 text-xs" title="Toggle light/dark mode">
@@ -909,9 +906,8 @@ function applyLang() {
     || document.querySelector('.tab.active[id^="tab-"]')?.id?.replace('tab-', '');
   if (activeTab === 'results') loadResults();
   else if (activeTab === 'analysis') loadAnalysis();
-  document.querySelectorAll('[data-lang-btn]').forEach(btn => {
-    btn.classList.toggle('active-lang', btn.dataset.langBtn === _lang);
-  });
+  const sel = document.getElementById('lang-select');
+  if (sel) sel.value = _lang;
 }
 
 // ─── State ───────────────────────────────────────────────────────────────────
