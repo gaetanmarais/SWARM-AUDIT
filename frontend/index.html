@@ -369,212 +369,239 @@
 
       <!-- Header -->
       <div>
-        <h2 class="text-lg font-bold text-slate-200 mb-1">ARCIS-SWARM — How it works</h2>
-        <p class="text-sm text-slate-400">Reference guide for the discovery process, audit script, role detection, and AI analysis modules.</p>
+        <h2 class="text-lg font-bold text-slate-200 mb-1">ARCIS-SWARM — Comment ça fonctionne</h2>
+        <p class="text-sm text-slate-400">Guide de référence : découverte des serveurs, détection des rôles et features, et modules d'analyse IA.</p>
       </div>
 
-      <!-- 1. Discovery -->
+      <!-- 1. Découverte -->
       <section class="card rounded-xl p-5">
-        <h3 class="text-sm font-semibold text-blue-400 uppercase tracking-wider mb-3">1. Discovery</h3>
-        <p class="text-xs text-slate-400 mb-3">Discovery is manual: you add servers and credential profiles in the <strong class="text-slate-300">Credentials</strong> tab. Each server is associated with a credential profile (or the default profile). The backend stores the inventory in <code class="bg-slate-800 px-1 rounded">inventory.json</code>.</p>
-        <p class="text-xs text-slate-400 mb-3">When an audit is launched, the backend connects to each server via SSH (using <code class="bg-slate-800 px-1 rounded">paramiko</code>), uploads the audit script to <code class="bg-slate-800 px-1 rounded">/tmp/arcis_audit_*.sh</code>, executes it, and streams back the JSON payload. The script is self-contained — it requires only <code class="bg-slate-800 px-1 rounded">bash</code>, <code class="bg-slate-800 px-1 rounded">ss</code>, <code class="bg-slate-800 px-1 rounded">ip</code>, and standard Linux utilities.</p>
-        <p class="text-xs text-slate-400">Additionally, on Gateway/SCS nodes, the backend also queries the Elasticsearch API directly (<code class="bg-slate-800 px-1 rounded">_cat/health</code>, <code class="bg-slate-800 px-1 rounded">_cat/nodes</code>, <code class="bg-slate-800 px-1 rounded">_cat/indices</code>, <code class="bg-slate-800 px-1 rounded">_nodes/stats</code>, <code class="bg-slate-800 px-1 rounded">_cat/allocation</code>) to enrich the ES audit data without relying solely on SSH.</p>
-      </section>
+        <h3 class="text-sm font-semibold text-blue-400 uppercase tracking-wider mb-4">1. Découverte des serveurs</h3>
 
-      <!-- 2. Audit script -->
-      <section class="card rounded-xl p-5">
-        <h3 class="text-sm font-semibold text-blue-400 uppercase tracking-wider mb-3">2. Audit Script (<code class="normal-case font-mono text-blue-300">scripts/audit.sh</code>)</h3>
-        <p class="text-xs text-slate-400 mb-4">The script runs on each server and collects the following data blocks:</p>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-          <div>
-            <p class="text-slate-300 font-medium mb-1">System specs</p>
-            <ul class="text-slate-400 space-y-0.5 ml-3 list-disc list-outside">
-              <li>CPU count &amp; model (<code>/proc/cpuinfo</code>)</li>
-              <li>RAM total &amp; available (<code>/proc/meminfo</code>)</li>
-              <li>Disk usage per partition (<code>df -BG</code>)</li>
-              <li>Hostname, OS release, kernel, uptime</li>
-            </ul>
+        <p class="text-xs text-slate-300 font-medium mb-1">Inventaire manuel</p>
+        <p class="text-xs text-slate-400 mb-4">Ajout de serveurs et de profils de credentials dans l'onglet <strong class="text-slate-300">Credentials</strong>. Chaque serveur est associé à un profil (ou au profil par défaut). L'inventaire est stocké dans <code class="bg-slate-800 px-1 rounded">inventory.json</code>.</p>
+
+        <p class="text-xs text-slate-300 font-medium mb-1">Auto-découverte par signaux topologiques</p>
+        <p class="text-xs text-slate-400 mb-3">Lors d'un audit, chaque nœud audité expose des signaux qui permettent de découvrir automatiquement d'autres serveurs de l'infrastructure :</p>
+        <div class="space-y-2 text-xs mb-4">
+          <div class="grid grid-cols-12 gap-2 items-start">
+            <span class="col-span-4 font-mono text-slate-300">keepalived_peers</span>
+            <span class="col-span-8 text-slate-400">Pairs VRRP unicast → autres nœuds <span class="font-mono text-yellow-400">HAPROXY</span></span>
           </div>
-          <div>
-            <p class="text-slate-300 font-medium mb-1">Network</p>
-            <ul class="text-slate-400 space-y-0.5 ml-3 list-disc list-outside">
-              <li>All interfaces &amp; IPs (<code>ip addr show</code>)</li>
-              <li>Active TCP/UDP connections (<code>ss -tupn</code>) — remote IPs, ports, process names</li>
-              <li>Listening ports per service (<code>ss -tlnp</code> / <code>ss -ulnp</code>)</li>
-            </ul>
+          <div class="grid grid-cols-12 gap-2 items-start">
+            <span class="col-span-4 font-mono text-slate-300">haproxy_backends</span>
+            <span class="col-span-8 text-slate-400">IPs déclarées en backend HAProxy → nœuds <span class="font-mono text-cyan-400">CONTENT_GATEWAY</span></span>
           </div>
-          <div>
-            <p class="text-slate-300 font-medium mb-1">Config files (read &amp; content)</p>
-            <ul class="text-slate-400 space-y-0.5 ml-3 list-disc list-outside">
-              <li><code>/etc/haproxy/haproxy.cfg</code></li>
-              <li><code>/etc/keepalived/keepalived.conf</code></li>
-              <li><code>/etc/caringo/cloudgateway/gateway.cfg</code></li>
-              <li><code>/etc/caringo/csn/conf.d/csn.cfg</code></li>
-              <li><code>/var/opt/caringo/netboot/content/cluster.cfg</code></li>
-              <li><code>/etc/caringo/scspproxy/scspproxy.cfg</code></li>
-              <li><code>/opt/caringo/storageui/conf/storageui.cfg</code></li>
-              <li><code>/opt/caringo/contentportal/conf/contentportal.cfg</code></li>
-              <li><code>/opt/caringo/listingcache/conf/listingcache.cfg</code></li>
-              <li><code>/opt/caringo/swarmfs/conf/swarmfs.cfg</code></li>
-              <li><code>/etc/caringo/node.cfg</code> / <code>cluster.cfg</code></li>
-              <li><code>/opt/caringo/castor/conf/castor.cfg</code></li>
-              <li><code>/var/opt/caringo/node/node.cfg</code></li>
-              <li><code>/etc/foundationdb/fdb.cluster</code></li>
-              <li><code>/etc/elasticsearch/elasticsearch.yml</code></li>
-              <li><code>/etc/rabbitmq/rabbitmq.conf</code></li>
-              <li><code>/etc/prometheus/prometheus.yml</code>, alertmanager, rules</li>
-              <li><code>/etc/grafana/grafana.ini</code></li>
-              <li><code>/etc/chrony.conf</code> / <code>/etc/ntp.conf</code></li>
-              <li><code>/etc/rsyslog.conf</code> + <code>rsyslog.d/*.conf</code></li>
-              <li><code>/etc/syslog-ng/syslog-ng.conf</code></li>
-              <li><code>/etc/dhcp/dhcpd.conf</code></li>
-            </ul>
+          <div class="grid grid-cols-12 gap-2 items-start">
+            <span class="col-span-4 font-mono text-slate-300">gw_cluster_ips</span>
+            <span class="col-span-8 text-slate-400">Peers du cluster gateway → autres <span class="font-mono text-cyan-400">CONTENT_GATEWAY</span> / <span class="font-mono text-green-400">SCS</span></span>
           </div>
-          <div>
-            <p class="text-slate-300 font-medium mb-1">SCS — scsctl virtual sources</p>
-            <ul class="text-slate-400 space-y-0.5 ml-3 list-disc list-outside">
-              <li><code>scsctl://storage/config</code> — cluster-wide storage params (from etcd)</li>
-              <li><code>scsctl://platform/config</code> — SCS platform params</li>
-              <li><code>scsctl://storage/cluster</code> — live cluster topology (nodes, domains, streams)</li>
-            </ul>
-            <p class="text-slate-300 font-medium mb-1 mt-3">Castor storage nodes</p>
-            <ul class="text-slate-400 space-y-0.5 ml-3 list-disc list-outside">
-              <li>SNMP healthreport per node via <code>swarmctl -Q healthreport</code> (from GW/SCS node)</li>
-              <li>Feed list via <code>swarmctl -Q feeds</code> (from GW/SCS node)</li>
-              <li>Node list via <code>swarmctl -Q nodes</code></li>
-            </ul>
-            <p class="text-slate-300 font-medium mb-1 mt-3">Logs (last 24h, 100 KB cap)</p>
-            <ul class="text-slate-400 space-y-0.5 ml-3 list-disc list-outside">
-              <li><strong>HAPROXY</strong>: journald <code>haproxy</code> → <code>/var/log/haproxy.log</code></li>
-              <li><strong>CONTENT_GATEWAY</strong>: journald <code>caringo-gateway</code> → <code>/var/log/datacore/gateway*.log</code></li>
-              <li><strong>LISTING_CACHE_SERVER</strong>: same as gateway</li>
-              <li><strong>ELASTICSEARCH</strong>: journald <code>elasticsearch</code> → <code>/var/log/elasticsearch/*.log</code></li>
-              <li><strong>CASTOR</strong>: journald <code>castor</code> → <code>/var/log/caringo/castor.log</code></li>
-              <li><strong>SCS</strong>: journald <code>scs</code> → <code>/var/log/datacore/scs*.log</code></li>
-              <li><strong>LISTING_CACHE (Redis)</strong>: journald <code>redis-server</code> → <code>/var/log/redis/*.log</code></li>
-            </ul>
-            <p class="text-xs text-slate-500 mt-1">Fallback order: journald → date-filtered file lines → tail 5000 lines. High-volume logs are deduplicated by message frequency.</p>
+          <div class="grid grid-cols-12 gap-2 items-start">
+            <span class="col-span-4 font-mono text-slate-300">gw_es_ips</span>
+            <span class="col-span-8 text-slate-400">IPs ES configurées dans gateway.cfg → nœuds <span class="font-mono text-purple-400">ELASTICSEARCH</span></span>
           </div>
+          <div class="grid grid-cols-12 gap-2 items-start">
+            <span class="col-span-4 font-mono text-slate-300">gw_lcs_ips</span>
+            <span class="col-span-8 text-slate-400">IPs du listing cache → nœuds <span class="font-mono text-orange-400">LISTING_CACHE_SERVER</span></span>
+          </div>
+          <div class="grid grid-cols-12 gap-2 items-start">
+            <span class="col-span-4 font-mono text-slate-300">ntp_target / syslog_target</span>
+            <span class="col-span-8 text-slate-400">Serveur NTP ou syslog centralisé → probable <span class="font-mono text-green-400">SCS</span></span>
+          </div>
+          <div class="grid grid-cols-12 gap-2 items-start">
+            <span class="col-span-4 font-mono text-slate-300">es_seed_hosts</span>
+            <span class="col-span-8 text-slate-400">Seeds de découverte ES (<code>discovery.seed_hosts</code>) → autres <span class="font-mono text-purple-400">ELASTICSEARCH</span></span>
+          </div>
+        </div>
+        <p class="text-xs text-slate-500">Les nœuds auto-découverts sont ajoutés à la queue d'audit et marqués <span class="text-blue-400 font-mono">discovered</span>. L'audit s'arrête quand plus aucun nouveau signal n'émerge.</p>
+
+        <div class="mt-4 pt-4 border-t border-slate-800">
+          <p class="text-xs text-slate-300 font-medium mb-1">Enrichissement ES direct</p>
+          <p class="text-xs text-slate-400">Sur les nœuds ES détectés, le backend interroge également l'API HTTP en direct (<code class="bg-slate-800 px-1 rounded">_cat/health</code>, <code class="bg-slate-800 px-1 rounded">_cat/nodes</code>, <code class="bg-slate-800 px-1 rounded">_cat/indices</code>, <code class="bg-slate-800 px-1 rounded">_nodes/stats</code>, <code class="bg-slate-800 px-1 rounded">_cat/allocation</code>) pour compléter les données SSH.</p>
         </div>
       </section>
 
-      <!-- 3. Role detection -->
+      <!-- 2. Rôles -->
       <section class="card rounded-xl p-5">
-        <h3 class="text-sm font-semibold text-blue-400 uppercase tracking-wider mb-4">3. Role Detection</h3>
-        <p class="text-xs text-slate-400 mb-4">Roles are detected deterministically — no heuristics. Each role requires at least one positive match. Multiple roles can co-exist on the same node.</p>
+        <h3 class="text-sm font-semibold text-blue-400 uppercase tracking-wider mb-3">2. Rôles</h3>
+        <p class="text-xs text-slate-400 mb-4">La détection est <strong class="text-slate-300">déterministe</strong> — pas d'heuristiques. Chaque rôle exige au moins un critère positif. Un même nœud peut avoir plusieurs rôles. Les nœuds sans rôle détecté sont ignorés de l'analyse.</p>
         <div class="space-y-3 text-xs">
 
           <div class="grid grid-cols-12 gap-2 items-start border-b border-slate-800 pb-3">
-            <span class="col-span-3 font-mono text-yellow-300 font-semibold">HAPROXY</span>
-            <span class="col-span-9 text-slate-400">Process <code>haproxy</code> running OR service <code>haproxy</code> active</span>
+            <span class="col-span-4 font-mono text-yellow-300 font-semibold">HAPROXY</span>
+            <span class="col-span-8 text-slate-400">Processus <code>haproxy</code> en cours OU service <code>haproxy</code> actif</span>
           </div>
 
           <div class="grid grid-cols-12 gap-2 items-start border-b border-slate-800 pb-3">
-            <span class="col-span-3 font-mono text-cyan-300 font-semibold">CONTENT_GATEWAY</span>
-            <span class="col-span-9 text-slate-400">Service <code>cloudgateway</code> / <code>caringo-gateway</code> active OR (package <code>caringo-gateway</code> installed AND <code>gateway.cfg</code> present) — skipped if node is an LCS</span>
+            <span class="col-span-4 font-mono text-cyan-300 font-semibold">CONTENT_GATEWAY</span>
+            <span class="col-span-8 text-slate-400">Service <code>cloudgateway</code> / <code>caringo-gateway</code> actif OU (package <code>caringo-gateway</code> installé ET <code>gateway.cfg</code> présent) — exclu si le nœud est un LCS</span>
           </div>
 
           <div class="grid grid-cols-12 gap-2 items-start border-b border-slate-800 pb-3">
-            <span class="col-span-3 font-mono text-cyan-300 font-semibold">S3</span>
-            <span class="col-span-9 text-slate-400">Service <code>cloudgateway</code> active (the S3 API endpoint is the gateway daemon itself)</span>
+            <span class="col-span-4 font-mono text-orange-400 font-semibold">LISTING_CACHE_SERVER</span>
+            <span class="col-span-8 text-slate-400">Indicateurs RabbitMQ : processus <code>rabbitmq</code> / <code>beam.smp</code>, service <code>rabbitmq-server</code>, package <code>rabbitmq</code>, port 5672 (AMQP) ou 15672 (management UI) — OU service <code>listingcache</code> / package <code>caringo-listingcache</code></span>
           </div>
 
           <div class="grid grid-cols-12 gap-2 items-start border-b border-slate-800 pb-3">
-            <span class="col-span-3 font-mono text-purple-300 font-semibold">CONTENT_UI</span>
-            <span class="col-span-9 text-slate-400">Package <code>caringo-gateway-webui</code> OR service <code>contentportal</code> active OR <code>contentportal.cfg</code> present OR <code>gateway.cfg</code> section <code>[scsp]</code> with <code>enabled = true</code></span>
+            <span class="col-span-4 font-mono text-orange-300 font-semibold">LISTING_CACHE</span>
+            <span class="col-span-8 text-slate-400">Processus <code>redis-server</code> OU service <code>redis</code> actif OU port 6379 en écoute — OU processus / service <code>memcached</code> OU port 11211</span>
           </div>
 
           <div class="grid grid-cols-12 gap-2 items-start border-b border-slate-800 pb-3">
-            <span class="col-span-3 font-mono text-purple-300 font-semibold">STORAGE_UI</span>
-            <span class="col-span-9 text-slate-400">Service <code>storageui</code> active OR <code>storageui.cfg</code> present OR (package <code>caringo-storage-webui</code> AND <code>gateway.cfg</code> present) OR <code>gateway.cfg</code> section <code>[cluster_admin]</code> with <code>enabled = true</code></span>
+            <span class="col-span-4 font-mono text-green-300 font-semibold">SCS</span>
+            <span class="col-span-8 text-slate-400">Binaire <code>scsctl</code> présent OU service <code>csn</code> / <code>scs</code> / <code>caringo-csn</code> actif OU package <code>caringo-csn</code> / <code>caringo-scs</code> OU <code>csn.cfg</code> / <code>cluster.cfg</code> présent OU port 8095 (SCS API) OU ports 2379+2380 (etcd)</span>
           </div>
 
           <div class="grid grid-cols-12 gap-2 items-start border-b border-slate-800 pb-3">
-            <span class="col-span-3 font-mono text-orange-300 font-semibold">LISTING_CACHE_SERVER</span>
-            <span class="col-span-9 text-slate-400">RabbitMQ indicators: process <code>rabbitmq</code> / <code>beam.smp</code>, service <code>rabbitmq-server</code>, package <code>rabbitmq</code>, port 5672 (AMQP) or 15672 (management) — OR service <code>listingcache</code> / package <code>caringo-listingcache</code></span>
+            <span class="col-span-4 font-mono text-green-400 font-semibold">CSN_PLATFORM</span>
+            <span class="col-span-8 text-slate-400">Service <code>csn</code> actif OU <code>/opt/caringo/csn/conf/csn.cfg</code> présent (ancienne installation — branding CSN legacy)</span>
           </div>
 
           <div class="grid grid-cols-12 gap-2 items-start border-b border-slate-800 pb-3">
-            <span class="col-span-3 font-mono text-orange-300 font-semibold">LISTING_CACHE</span>
-            <span class="col-span-9 text-slate-400">Process <code>redis-server</code>, service <code>redis</code> active, port 6379 listening, OR package <code>redis-server</code></span>
+            <span class="col-span-4 font-mono text-purple-300 font-semibold">ELASTICSEARCH</span>
+            <span class="col-span-8 text-slate-400">Package <code>caringo-elasticsearch-search</code> OU service <code>elasticsearch</code> actif OU <code>elasticsearch.yml</code> présent — ou port 9200 avec confirmation API (<code>"cluster_name"</code> dans la réponse). Le port seul ne suffit pas — les nœuds Castor exposent aussi 9200 pour les métriques.</span>
           </div>
 
           <div class="grid grid-cols-12 gap-2 items-start border-b border-slate-800 pb-3">
-            <span class="col-span-3 font-mono text-green-300 font-semibold">SCS</span>
-            <span class="col-span-9 text-slate-400">Binary <code>scsctl</code> present OR service <code>csn</code> / <code>scs</code> / <code>caringo-csn</code> active OR package <code>caringo-csn</code> / <code>caringo-scs</code> OR <code>csn.cfg</code> / <code>cluster.cfg</code> present OR port 8095 (SCS API) OR ports 2379+2380 (etcd cluster)</span>
+            <span class="col-span-4 font-mono text-slate-300 font-semibold">CASTOR</span>
+            <span class="col-span-8 text-slate-400">Processus <code>castor</code> OU service <code>castor</code> / <code>castord</code> / <code>datacore-castor</code> actif OU <code>/etc/caringo/node.cfg</code> OU <code>/var/opt/caringo/node</code> présent — exclu des nœuds HAPROXY et CONTENT_GATEWAY</span>
           </div>
 
           <div class="grid grid-cols-12 gap-2 items-start border-b border-slate-800 pb-3">
-            <span class="col-span-3 font-mono text-red-300 font-semibold">ELASTICSEARCH</span>
-            <span class="col-span-9 text-slate-400">Package <code>caringo-elasticsearch-search</code> OR process <code>java</code> with <code>elasticsearch</code> in command line OR port 9200 listening OR <code>elasticsearch.yml</code> present</span>
+            <span class="col-span-4 font-mono text-slate-400 font-semibold">FOUNDATION_DB</span>
+            <span class="col-span-8 text-slate-400">Processus <code>fdbserver</code> OU service <code>foundationdb</code> actif OU <code>/etc/foundationdb/fdb.cluster</code> présent</span>
           </div>
 
           <div class="grid grid-cols-12 gap-2 items-start border-b border-slate-800 pb-3">
-            <span class="col-span-3 font-mono text-slate-300 font-semibold">STORAGE_NODE (Castor)</span>
-            <span class="col-span-9 text-slate-400">Process <code>castor</code> running OR service <code>castor</code> active OR package <code>castor</code> / <code>caringo-castor</code> OR <code>castor.cfg</code> / <code>node.cfg</code> / <code>/var/opt/caringo/node</code> present OR port 80/443 on a non-GW node<br>
-            <span class="text-slate-500">Note: Castor nodes are typically not SSH-reachable. Their config is collected indirectly from SCS/GW nodes via <code>scsctl</code> and <code>swarmctl</code>.</span></span>
-          </div>
-
-          <div class="grid grid-cols-12 gap-2 items-start border-b border-slate-800 pb-3">
-            <span class="col-span-3 font-mono text-slate-300 font-semibold">FONDATION_DB</span>
-            <span class="col-span-9 text-slate-400">Process <code>fdbserver</code> running OR service <code>foundationdb</code> active OR <code>/etc/foundationdb/fdb.cluster</code> present</span>
+            <span class="col-span-4 font-mono text-slate-400 font-semibold">SWARMFS</span>
+            <span class="col-span-8 text-slate-400">Processus <code>swarmfs</code> OU service <code>swarmfs</code> actif OU <code>swarmfs.cfg</code> présent</span>
           </div>
 
           <div class="grid grid-cols-12 gap-2 items-start">
-            <span class="col-span-3 font-mono text-slate-300 font-semibold">SWARMFS</span>
-            <span class="col-span-9 text-slate-400">Process <code>swarmfs</code> running OR service <code>swarmfs</code> active OR <code>swarmfs.cfg</code> present</span>
+            <span class="col-span-4 font-mono text-slate-400 font-semibold">TELEMETRY</span>
+            <span class="col-span-8 text-slate-400">Prometheus (processus / port 9090 / <code>prometheus.yml</code>) OU Grafana (processus / port 3000 / <code>grafana.ini</code>) OU Alertmanager (processus / port 9093 / <code>alertmanager.yml</code>)</span>
           </div>
 
         </div>
       </section>
 
-      <!-- 4. AI Analysis -->
+      <!-- 3. Features -->
       <section class="card rounded-xl p-5">
-        <h3 class="text-sm font-semibold text-blue-400 uppercase tracking-wider mb-4">4. AI Analysis Modules</h3>
-        <p class="text-xs text-slate-400 mb-4">After each audit, Claude (Haiku model) analyzes each role group independently, then runs a cross-role coherence synthesis. Each module receives config files, logs, and optional extended data specific to its role.</p>
+        <h3 class="text-sm font-semibold text-blue-400 uppercase tracking-wider mb-3">3. Features (badges)</h3>
+        <p class="text-xs text-slate-400 mb-4">Les features sont des fonctionnalités co-localisées sur un nœud, indépendantes de son rôle principal. Elles s'affichent comme petits badges colorés sur la tuile du serveur dans le diagramme SVG et dans les résultats d'audit.</p>
+        <div class="space-y-2 text-xs">
+
+          <div class="grid grid-cols-12 gap-2 items-start border-b border-slate-800 pb-2">
+            <span class="col-span-4"><span class="inline-block px-1.5 py-0.5 rounded text-white font-mono font-semibold text-xs" style="background:#0891b2">S3</span></span>
+            <span class="col-span-8 text-slate-400">Service <code>cloudgateway</code> ou <code>caringo-gateway</code> actif — le daemon gateway expose l'API S3 sur le même processus que CONTENT_GATEWAY</span>
+          </div>
+
+          <div class="grid grid-cols-12 gap-2 items-start border-b border-slate-800 pb-2">
+            <span class="col-span-4"><span class="inline-block px-1.5 py-0.5 rounded text-white font-mono font-semibold text-xs" style="background:#06b6d4">CONT-UI</span></span>
+            <span class="col-span-8 text-slate-400">Content Portal actif : service <code>contentportal</code> OU package <code>caringo-gateway-webui</code> OU <code>contentportal.cfg</code> OU section <code>[scsp]</code> activée dans <code>gateway.cfg</code></span>
+          </div>
+
+          <div class="grid grid-cols-12 gap-2 items-start border-b border-slate-800 pb-2">
+            <span class="col-span-4"><span class="inline-block px-1.5 py-0.5 rounded text-white font-mono font-semibold text-xs" style="background:#14b8a6">STO-UI</span></span>
+            <span class="col-span-8 text-slate-400">Storage UI actif : service <code>storageui</code> OU <code>storageui.cfg</code> OU (package <code>caringo-storage-webui</code> + <code>gateway.cfg</code>) OU section <code>[cluster_admin]</code> activée dans <code>gateway.cfg</code></span>
+          </div>
+
+          <div class="grid grid-cols-12 gap-2 items-start border-b border-slate-800 pb-2">
+            <span class="col-span-4"><span class="inline-block px-1.5 py-0.5 rounded text-white font-mono font-semibold text-xs" style="background:#f97316">RABBIT</span></span>
+            <span class="col-span-8 text-slate-400">Broker RabbitMQ détecté (processus / service / port 5672 ou 15672)</span>
+          </div>
+
+          <div class="grid grid-cols-12 gap-2 items-start border-b border-slate-800 pb-2">
+            <span class="col-span-4"><span class="inline-block px-1.5 py-0.5 rounded text-white font-mono font-semibold text-xs" style="background:#0ea5e9">NTP</span></span>
+            <span class="col-span-8 text-slate-400">Serveur NTP : <code>ntpd</code> actif, ou <code>chronyd</code> avec port UDP 123 ou directive <code>allow</code> dans <code>chrony.conf</code></span>
+          </div>
+
+          <div class="grid grid-cols-12 gap-2 items-start border-b border-slate-800 pb-2">
+            <span class="col-span-4"><span class="inline-block px-1.5 py-0.5 rounded text-white font-mono font-semibold text-xs" style="background:#6b7280">SYSLOG</span></span>
+            <span class="col-span-8 text-slate-400">Collecteur syslog : <code>rsyslogd</code> / <code>syslog-ng</code> actif OU port UDP 514 en écoute</span>
+          </div>
+
+          <div class="grid grid-cols-12 gap-2 items-start border-b border-slate-800 pb-2">
+            <span class="col-span-4"><span class="inline-block px-1.5 py-0.5 rounded text-white font-mono font-semibold text-xs" style="background:#f97316">DHCP</span></span>
+            <span class="col-span-8 text-slate-400">Serveur DHCP : <code>dhcpd</code> / <code>kea-dhcp4</code> actif OU port UDP 67 en écoute</span>
+          </div>
+
+          <div class="grid grid-cols-12 gap-2 items-start border-b border-slate-800 pb-2">
+            <span class="col-span-4"><span class="inline-block px-1.5 py-0.5 rounded text-white font-mono font-semibold text-xs" style="background:#d97706">TFTP</span></span>
+            <span class="col-span-8 text-slate-400">Serveur PXE/TFTP : <code>tftpd</code> / <code>atftpd</code> actif, <code>/var/lib/tftpboot</code> présent, ou port UDP 69 en écoute</span>
+          </div>
+
+          <div class="grid grid-cols-12 gap-2 items-start border-b border-slate-800 pb-2">
+            <span class="col-span-4"><span class="inline-block px-1.5 py-0.5 rounded text-white font-mono font-semibold text-xs" style="background:#e11d48">PROM</span></span>
+            <span class="col-span-8 text-slate-400">Prometheus actif (processus / port 9090 / <code>prometheus.yml</code>)</span>
+          </div>
+
+          <div class="grid grid-cols-12 gap-2 items-start border-b border-slate-800 pb-2">
+            <span class="col-span-4"><span class="inline-block px-1.5 py-0.5 rounded text-white font-mono font-semibold text-xs" style="background:#dc2626">ALERT</span></span>
+            <span class="col-span-8 text-slate-400">Alertmanager actif (processus / port 9093)</span>
+          </div>
+
+          <div class="grid grid-cols-12 gap-2 items-start">
+            <span class="col-span-4"><span class="inline-block px-1.5 py-0.5 rounded text-white font-mono font-semibold text-xs" style="background:#f97316">GRAFANA</span></span>
+            <span class="col-span-8 text-slate-400">Grafana actif (processus / port 3000 / <code>grafana.ini</code>)</span>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- 4. Analyse IA -->
+      <section class="card rounded-xl p-5">
+        <h3 class="text-sm font-semibold text-blue-400 uppercase tracking-wider mb-4">4. Modules d'analyse IA</h3>
+        <p class="text-xs text-slate-400 mb-4">Après chaque audit, Claude analyse chaque groupe de rôles indépendamment, puis génère une synthèse de cohérence inter-rôles. Chaque module reçoit les configs, les logs et les données étendues spécifiques à son rôle.</p>
         <div class="space-y-4 text-xs">
 
           <div class="border-b border-slate-800 pb-4">
-            <p class="text-slate-200 font-semibold mb-1">HAPROXY</p>
-            <p class="text-slate-400 mb-1"><span class="text-slate-500">Config:</span> <code>haproxy.cfg</code>, <code>keepalived.conf</code> — backend server lists, balance algorithms, health check timeouts, VRRP configuration</p>
-            <p class="text-slate-400"><span class="text-slate-500">Logs:</span> <code>journald haproxy</code> → <code>/var/log/haproxy.log</code> — backend errors, connection resets, health check failures</p>
+            <p class="text-slate-200 font-semibold mb-1 font-mono">HAPROXY</p>
+            <p class="text-slate-400 mb-1"><span class="text-slate-500">Config :</span> <code>haproxy.cfg</code>, <code>keepalived.conf</code> — listes de backends, algorithmes de balance, timeouts de healthcheck, configuration VRRP</p>
+            <p class="text-slate-400"><span class="text-slate-500">Logs :</span> journald <code>haproxy</code> → <code>/var/log/haproxy.log</code> — erreurs backend, resets de connexion, échecs healthcheck</p>
           </div>
 
           <div class="border-b border-slate-800 pb-4">
-            <p class="text-slate-200 font-semibold mb-1">CONTENT_GATEWAY / S3 / CONTENT_UI / STORAGE_UI</p>
-            <p class="text-slate-400 mb-1"><span class="text-slate-500">Config:</span> <code>gateway.cfg</code> — SCSP cluster IPs, S3 settings, listing cache endpoints, webUI enabled sections (<code>[scsp]</code>, <code>[cluster_admin]</code>)</p>
-            <p class="text-slate-400"><span class="text-slate-500">Logs:</span> <code>journald caringo-gateway</code> → <code>/var/log/datacore/gateway*.log</code></p>
+            <p class="text-slate-200 font-semibold mb-1 font-mono">CONTENT_GATEWAY</p>
+            <p class="text-slate-400 mb-1"><span class="text-slate-500">Config :</span> <code>gateway.cfg</code> — IPs cluster SCSP, endpoints listing cache, sections S3/UI activées (<code>[scsp]</code>, <code>[cluster_admin]</code>)</p>
+            <p class="text-slate-400"><span class="text-slate-500">Logs :</span> journald <code>caringo-gateway</code> → <code>/var/log/datacore/gateway*.log</code></p>
           </div>
 
           <div class="border-b border-slate-800 pb-4">
-            <p class="text-slate-200 font-semibold mb-1">LISTING_CACHE_SERVER</p>
-            <p class="text-slate-400 mb-1"><span class="text-slate-500">Config:</span> <code>rabbitmq.conf</code>, <code>listingcache.cfg</code></p>
-            <p class="text-slate-400"><span class="text-slate-500">Logs:</span> <code>/var/log/datacore/lcs*.log</code>, fallback to gateway log</p>
+            <p class="text-slate-200 font-semibold mb-1 font-mono">LISTING_CACHE_SERVER</p>
+            <p class="text-slate-400 mb-1"><span class="text-slate-500">Config :</span> <code>rabbitmq.conf</code>, <code>listingcache.cfg</code></p>
+            <p class="text-slate-400"><span class="text-slate-500">Logs :</span> <code>/var/log/datacore/lcs*.log</code>, fallback sur le log gateway</p>
           </div>
 
           <div class="border-b border-slate-800 pb-4">
-            <p class="text-slate-200 font-semibold mb-1">SCS / Castor</p>
-            <p class="text-slate-400 mb-1"><span class="text-slate-500">Config:</span> <code>csn.cfg</code>, <code>cluster.cfg</code>, <code>scsctl://storage/config</code>, <code>scsctl://platform/config</code>, <code>scsctl://storage/cluster</code> (live topology from etcd)</p>
-            <p class="text-slate-400"><span class="text-slate-500">Logs:</span> <code>journald castor</code> + <code>journald scs</code> → <code>/var/log/caringo/castor.log</code>, <code>/var/log/datacore/scs*.log</code></p>
+            <p class="text-slate-200 font-semibold mb-1 font-mono">SCS</p>
+            <p class="text-slate-400 mb-1"><span class="text-slate-500">Config :</span> <code>csn.cfg</code>, <code>cluster.cfg</code>, sources virtuelles <code>scsctl://storage/config</code>, <code>scsctl://platform/config</code>, <code>scsctl://storage/cluster</code> (topologie live depuis etcd)</p>
+            <p class="text-slate-400"><span class="text-slate-500">Logs :</span> journald <code>scs</code> → <code>/var/log/datacore/scs*.log</code></p>
           </div>
 
           <div class="border-b border-slate-800 pb-4">
-            <p class="text-slate-200 font-semibold mb-1">ELASTICSEARCH</p>
-            <p class="text-slate-400 mb-1"><span class="text-slate-500">Config:</span> <code>elasticsearch.yml</code> — cluster name, node roles, memory lock, security settings</p>
-            <p class="text-slate-400 mb-1"><span class="text-slate-500">ES API (via HTTP):</span> <code>_cat/health</code>, <code>_cat/nodes?v</code>, <code>_cat/indices?v&h=…</code>, <code>_nodes/stats</code>, <code>_cat/allocation?v</code></p>
-            <p class="text-slate-400"><span class="text-slate-500">Logs:</span> <code>journald elasticsearch</code> → <code>/var/log/elasticsearch/*.log</code></p>
+            <p class="text-slate-200 font-semibold mb-1 font-mono">CASTOR</p>
+            <p class="text-slate-400 mb-1"><span class="text-slate-500">Config :</span> <code>node.cfg</code>, <code>castor.cfg</code>, healthreport SNMP via <code>swarmctl -Q healthreport</code></p>
+            <p class="text-slate-400 mb-1"><span class="text-slate-500">Logs :</span> journald <code>castor</code> → <code>/var/log/datacore/castor.log</code> (chemin primaire), fallback <code>/var/log/caringo/castor.log</code>. Les nœuds SCS servant de relais syslog exposent aussi ce log.</p>
+            <p class="text-slate-400 text-slate-500">Les nœuds Castor ne sont généralement pas accessibles en SSH — leurs données sont collectées indirectement depuis SCS/GW via <code>scsctl</code> et <code>swarmctl</code>.</p>
           </div>
 
           <div class="border-b border-slate-800 pb-4">
-            <p class="text-slate-200 font-semibold mb-1">FEED (synthetic module)</p>
-            <p class="text-slate-400 mb-1"><span class="text-slate-500">Data source:</span> SNMP healthreport Feed Table aggregated across all storage nodes (collected from SCS/GW via <code>swarmctl -Q healthreport</code>)</p>
-            <p class="text-slate-400 mb-1"><span class="text-slate-500">Extended:</span> <code>swarmctl -Q feeds</code> — feed definitions (name, state, type, streams/min, queue depth, failure causes)</p>
-            <p class="text-slate-400"><span class="text-slate-500">Note:</span> FEEDs are not servers — this module analyzes data replication flow health across the cluster</p>
+            <p class="text-slate-200 font-semibold mb-1 font-mono">ELASTICSEARCH</p>
+            <p class="text-slate-400 mb-1"><span class="text-slate-500">Config :</span> <code>elasticsearch.yml</code> — cluster name, rôles de nœud, memory lock, sécurité</p>
+            <p class="text-slate-400 mb-1"><span class="text-slate-500">API ES (HTTP direct) :</span> <code>_cat/health</code>, <code>_cat/nodes?v</code>, <code>_cat/indices?v</code>, <code>_nodes/stats</code>, <code>_cat/allocation?v</code></p>
+            <p class="text-slate-400"><span class="text-slate-500">Logs :</span> journald <code>elasticsearch</code> → <code>/var/log/elasticsearch/*.log</code></p>
+          </div>
+
+          <div class="border-b border-slate-800 pb-4">
+            <p class="text-slate-200 font-semibold mb-1 font-mono">FEED <span class="text-slate-500 font-normal">(module synthétique)</span></p>
+            <p class="text-slate-400 mb-1"><span class="text-slate-500">Source :</span> table Feed du healthreport SNMP agrégée sur tous les nœuds de stockage (collectée depuis SCS/GW via <code>swarmctl -Q healthreport</code>)</p>
+            <p class="text-slate-400 mb-1"><span class="text-slate-500">Étendu :</span> <code>swarmctl -Q feeds</code> — définitions des feeds (nom, état, type, streams/min, profondeur de file, causes d'échec)</p>
+            <p class="text-slate-400 text-slate-500">Ce module n'analyse pas un serveur mais l'état de la réplication de données à travers le cluster.</p>
           </div>
 
           <div>
-            <p class="text-slate-200 font-semibold mb-1">Coherence Synthesis</p>
-            <p class="text-slate-400">After all per-role modules complete, a final pass receives a digest of all findings and looks for cross-role inconsistencies, configuration mismatches between layers, and global risk patterns that individual modules would miss.</p>
+            <p class="text-slate-200 font-semibold mb-1">Synthèse de cohérence</p>
+            <p class="text-slate-400">Après l'exécution de tous les modules par rôle, un dernier passage reçoit un digest de l'ensemble des findings et recherche les incohérences inter-couches, les désalignements de configuration entre rôles, et les patterns de risque globaux que les modules individuels ne peuvent pas détecter.</p>
           </div>
 
         </div>
