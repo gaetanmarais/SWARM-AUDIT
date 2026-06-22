@@ -1,6 +1,6 @@
-# Version: 13.3.0
+# Version: 13.4.0
 # Date:    2026-06-22
-# Notes:   Fix SVG horizontal centering — tile area was shifted right by TILE_MARGIN_X
+# Notes:   S3/CONTENT_UI/STORAGE_UI demoted to feature badges; UNKNOWN removed from role maps
 
 from __future__ import annotations
 import html as _html_mod
@@ -21,19 +21,15 @@ ROLE_LAYERS: dict[str, int] = {
     "ELASTICSEARCH":        4,
     "FOUNDATION_DB":        4,
     "TELEMETRY":            4,
+    "CASTOR":               5,
     "STORAGE_NODE":         5,
-    "STORAGE_UI":           5,
     "SWARMFS":              5,
-    "CONTENT_UI":           6,
-    "UNKNOWN":              7,
 }
 
 ROLE_COLORS: dict[str, str] = {
     "HAPROXY":              "#c0392b",
     "CONTENT_GATEWAY":      "#2980b9",
     "SCS":                  "#16a085",
-    "STORAGE_UI":           "#1abc9c",
-    "CONTENT_UI":           "#27ae60",
     "SWARMFS":              "#2ecc71",
     "LISTING_CACHE":        "#f39c12",
     "LISTING_CACHE_SERVER": "#e67e22",
@@ -41,16 +37,14 @@ ROLE_COLORS: dict[str, str] = {
     "CSN_PLATFORM":         "#16a085",
     "TELEMETRY":            "#1a6a8a",
     "FOUNDATION_DB":        "#2c3e50",
+    "CASTOR":               "#4a6fa5",
     "STORAGE_NODE":         "#4a6fa5",
-    "UNKNOWN":              "#7f8c8d",
 }
 
 ROLE_SHORT: dict[str, str] = {
     "HAPROXY":              "HA",
     "CONTENT_GATEWAY":      "GW",
     "SCS":                  "SCS",
-    "STORAGE_UI":           "WEBUI",
-    "CONTENT_UI":           "UI",
     "SWARMFS":              "NFS",
     "LISTING_CACHE":        "LCS",
     "LISTING_CACHE_SERVER": "LCS-SRV",
@@ -58,8 +52,8 @@ ROLE_SHORT: dict[str, str] = {
     "CSN_PLATFORM":         "CSN",
     "TELEMETRY":            "TELEM",
     "FOUNDATION_DB":        "FDB",
+    "CASTOR":               "CASTOR",
     "STORAGE_NODE":         "STOR",
-    "UNKNOWN":              "?",
 }
 
 # Feature badges: (AuditResult field, short label, fill color)
@@ -72,6 +66,7 @@ FEATURE_BADGES: list[tuple[str, str, str]] = [
     ("is_prometheus",    "PROM",    "#e11d48"),
     ("is_alertmanager",  "ALERT",   "#dc2626"),
     ("is_grafana",       "GRAFANA", "#f97316"),
+    ("is_s3",            "S3",      "#0891b2"),
     ("is_content_ui",    "CONT-UI", "#06b6d4"),
     ("is_storage_ui",    "STO-UI",  "#14b8a6"),
 ]
@@ -83,8 +78,6 @@ LAYER_LABELS: dict[int, str] = {
     3: "LCS — Listing Cache",
     4: "ES / FDB — Search & DB",
     5: "Storage",
-    6: "UI",
-    7: "Unknown",
 }
 
 SUBNET_PALETTE = [

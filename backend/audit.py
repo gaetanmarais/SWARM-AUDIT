@@ -156,6 +156,7 @@ async def audit_server(
                 is_prometheus=data.get("is_prometheus", False),
                 is_alertmanager=data.get("is_alertmanager", False),
                 is_grafana=data.get("is_grafana", False),
+                is_s3=data.get("is_s3", False),
                 is_content_ui=data.get("is_content_ui", False),
                 is_storage_ui=data.get("is_storage_ui", False),
                 ntp_client_servers=data.get("ntp_client_servers", []),

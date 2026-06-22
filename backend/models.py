@@ -163,6 +163,7 @@ class AuditResult(BaseModel):
     is_prometheus: bool = False
     is_alertmanager: bool = False
     is_grafana: bool = False
+    is_s3: bool = False
     is_content_ui: bool = False
     is_storage_ui: bool = False
     # Discovery: where this node points for time sync and log forwarding

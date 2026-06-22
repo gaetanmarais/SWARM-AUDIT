@@ -1159,7 +1159,7 @@ async function loadDiscovery() {
     HAPROXY:'bg-red-800', CONTENT_GATEWAY:'bg-blue-800',
     CASTOR:'bg-slate-700', ELASTICSEARCH:'bg-purple-800',
     LISTING_CACHE_SERVER:'bg-orange-800', SCS:'bg-blue-900',
-    LISTING_CACHE:'bg-yellow-800', UNKNOWN:'bg-gray-700',
+    LISTING_CACHE:'bg-yellow-800',
   };
   try {
     const r = await fetch(API+'/api/discover/results');
@@ -1361,16 +1361,15 @@ async function loadDiagram() {
 // ─── Results ─────────────────────────────────────────────────────────────────
 const ROLE_COLORS_CSS = {
   HAPROXY:'bg-red-800',CONTENT_GATEWAY:'bg-blue-800',SCS:'bg-blue-900',
-  STORAGE_UI:'bg-teal-800',CONTENT_UI:'bg-teal-900',SWARMFS:'bg-green-800',
-  LISTING_CACHE:'bg-yellow-800',LISTING_CACHE_SERVER:'bg-orange-800',
+  SWARMFS:'bg-green-800',LISTING_CACHE:'bg-yellow-800',LISTING_CACHE_SERVER:'bg-orange-800',
   ELASTICSEARCH:'bg-purple-800',CSN_PLATFORM:'bg-purple-900',
-  FOUNDATION_DB:'bg-slate-700',STORAGE_NODE:'bg-slate-800',UNKNOWN:'bg-gray-700'
+  FOUNDATION_DB:'bg-slate-700',CASTOR:'bg-slate-700',STORAGE_NODE:'bg-slate-800',
 };
 
 function _resultCardHtml(res) {
   const roles = res.roles?.map(r =>
     `<span class="role-badge ${ROLE_COLORS_CSS[r.role]||'bg-gray-700'}">${r.role}</span>`
-  ).join(' ') || '<span class="role-badge bg-gray-700">UNKNOWN</span>';
+  ).join(' ') || '';
 
   const statusIcon = res.success
     ? '<span class="text-green-400">✓</span>'

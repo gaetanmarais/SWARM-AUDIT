@@ -43,7 +43,7 @@ _ALL_RAG_INDICES = list(range(len(RAG_QUERIES)))
 
 ROLE_RAG_MAP: dict[str, list[int]] = {role: _ALL_RAG_INDICES for role in (
     "HAPROXY", "CONTENT_GATEWAY", "ELASTICSEARCH", "CASTOR", "STORAGE_NODE",
-    "LISTING_CACHE", "LISTING_CACHE_SERVER", "SCS", "TELEMETRY", "UNKNOWN",
+    "LISTING_CACHE", "LISTING_CACHE_SERVER", "SCS", "TELEMETRY",
 )}
 _DEFAULT_RAG_INDICES = _ALL_RAG_INDICES
 
@@ -252,7 +252,7 @@ def _server_summary(r: AuditResult) -> str:
         lines.append(f"  AUDIT FAILED: {r.error}")
         return "\n".join(lines)
 
-    roles_str = ", ".join(rd.role for rd in r.roles) or "UNKNOWN"
+    roles_str = ", ".join(rd.role for rd in r.roles) or "—"
     lines.append(f"  Roles: {roles_str}")
     lines.append(f"  OS: {r.os}  Kernel: {r.kernel}")
 
@@ -401,8 +401,7 @@ ROLE_ORDER = [
     "CASTOR", "STORAGE_NODE",
     "FEED",
     "TELEMETRY",
-    "FOUNDATION_DB", "SWARMFS", "CONTENT_UI", "STORAGE_UI",
-    "UNKNOWN",
+    "FOUNDATION_DB", "SWARMFS",
 ]
 
 SEVERITY_ORDER = {"CRITICAL": 0, "WARNING": 1, "INFO": 2, "OK": 3}
@@ -417,11 +416,10 @@ def _group_by_role(results: list[AuditResult]) -> dict[str, list[AuditResult]]:
     groups: dict[str, list[AuditResult]] = {}
     for r in results:
         if not r.success or not r.roles:
-            groups.setdefault("UNKNOWN", []).append(r)
-            continue
+            continue  # servers with no detected role are excluded from analysis
         for rd in r.roles:
-            role = rd.role or "UNKNOWN"
-            groups.setdefault(role, []).append(r)
+            if rd.role:
+                groups.setdefault(rd.role, []).append(r)
 
     # Synthetic CASTOR group: SCS acts as syslog server for storage nodes —
     # their logs land at /var/log/datacore/castor.log and are collected under

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Version: 2.21.0
+# Version: 2.22.0
 # Date:    2026-06-22
-# Notes:   Fix ini_section_enabled for mawk (POSIX); S3 via _gw_svc; IS_CONTENT/STORAGE_UI check gateway.cfg
+# Notes:   S3/CONTENT_UI/STORAGE_UI demoted to feature flags; UNKNOWN removed; castor log from /var/log/datacore/castor.log
 
 set -euo pipefail
 
@@ -191,34 +191,7 @@ if ! $_is_lcs; then
     fi
 fi
 
-# ─── S3 (CloudGateway S3 API) ────────────────────────────────────────────────
-# Reuse _gw_svc which already covers both "cloudgateway" and "caringo-gateway".
-if $_gw_svc; then
-    add_role "S3" "svc:cloudgateway/caringo-gateway active"
-fi
-
-# ─── CONTENT UI (caringo-gateway-webui) ─────────────────────────────────────
-# Detected by package, service, dedicated cfg, OR [scsp] section enabled in
-# gateway.cfg (content portal is the SCSP web UI, co-located on GW nodes).
-if pkg_installed "^caringo-gateway-webui" \
-   || svc_active "contentportal" || svc_active "content-portal" \
-   || file_exists /opt/caringo/contentportal/conf/contentportal.cfg \
-   || file_exists /etc/caringo/contentportal/contentportal.cfg \
-   || ini_section_enabled "$_gw_cfg" "scsp"; then
-    add_role "CONTENT_UI" "pkg:caringo-gateway-webui or svc:contentportal or gateway.cfg[scsp].enabled"
-fi
-
-# ─── STORAGE UI (caringo-storage-webui) ─────────────────────────────────────
-# Detected by: service running, dedicated cfg, package, OR [cluster_admin]
-# section enabled in gateway.cfg (storage UI is co-located on GW nodes).
-# Package alone (without service or cfg confirmation) is not enough — it is
-# installed as a dep on HAProxy nodes without being active.
-if svc_active "storageui" \
-   || file_exists /opt/caringo/storageui/conf/storageui.cfg \
-   || ( pkg_installed "^caringo-storage-webui" && [ -n "$_gw_cfg" ] ) \
-   || ini_section_enabled "$_gw_cfg" "cluster_admin"; then
-    add_role "STORAGE_UI" "svc:storageui or cfg or pkg+gw or gateway.cfg[cluster_admin].enabled"
-fi
+# S3, CONTENT_UI, STORAGE_UI are features — detected below as IS_* flags, not roles.
 
 # ─── SCS / CSN (Swarm Cluster Services / Platform Server) ───────────────────
 # Key indicators: scsctl binary, caringo-csn/scs service/package/config,
@@ -310,10 +283,7 @@ if proc_running "alertmanager" || svc_active "alertmanager" \
 fi
 [ -n "$_telemetry_reason" ] && add_role "TELEMETRY" "process/svc:${_telemetry_reason}"
 
-# ─── UNKNOWN fallback ────────────────────────────────────────────────────────
-if [ "$ROLES" = "[]" ]; then
-    add_role "UNKNOWN" "no known Swarm component fingerprint detected"
-fi
+# No UNKNOWN fallback — servers with no detected role simply have an empty roles array.
 
 # ─── Infrastructure service detection ────────────────────────────────────────
 # Flags set regardless of main role — shown as feature badges on the diagram tile.
@@ -325,6 +295,7 @@ IS_RABBITMQ=false
 IS_PROMETHEUS=false
 IS_ALERTMANAGER=false
 IS_GRAFANA=false
+IS_S3=false
 IS_CONTENT_UI=false
 IS_STORAGE_UI=false
 
@@ -385,6 +356,11 @@ if proc_running "grafana-server" || proc_running "grafana" \
    || file_exists /etc/grafana/grafana.ini \
    || port_listening 3000; then
     IS_GRAFANA=true
+fi
+
+# S3 API (CloudGateway S3 endpoint)
+if $_gw_svc; then
+    IS_S3=true
 fi
 
 # Content UI (caringo content portal)
@@ -1128,10 +1104,10 @@ _has_role "LISTING_CACHE_SERVER" && _LOG_LCS_SERVER=$(  _collect_log "caringo-ga
 # LCS server and gateway share the same service — reuse if empty
 _has_role "LISTING_CACHE_SERVER" && [ -z "$_LOG_LCS_SERVER" ] && _LOG_LCS_SERVER="$_LOG_GATEWAY"
 _has_role "ELASTICSEARCH"        && _LOG_ES=$(          _collect_log "elasticsearch"   "/var/log/elasticsearch/*.log" "/var/log/datacore/elasticsearch*.log")
-# CASTOR: on SCS (syslog server) or on a bare storage node
-_has_role "SCS"                  && _LOG_CASTOR=$(      _collect_log "castor"          "/var/log/caringo/castor.log" "/var/log/datacore/castor*.log" "/var/log/caringo/*.log")
-_has_role "UNKNOWN"              && [ -z "$_LOG_CASTOR" ] && \
-    _LOG_CASTOR=$(                                       _collect_log "castor"          "/var/log/caringo/castor.log" "/var/log/datacore/castor*.log" "/var/log/caringo/*.log")
+# CASTOR: direct storage node, or SCS acting as syslog relay — primary path is /var/log/datacore/castor.log
+_has_role "CASTOR"               && _LOG_CASTOR=$(      _collect_log "castor"          "/var/log/datacore/castor.log" "/var/log/datacore/castor*.log" "/var/log/caringo/castor.log" "/var/log/caringo/*.log")
+_has_role "SCS"                  && [ -z "$_LOG_CASTOR" ] && \
+    _LOG_CASTOR=$(                                       _collect_log "castor"          "/var/log/datacore/castor.log" "/var/log/datacore/castor*.log" "/var/log/caringo/castor.log" "/var/log/caringo/*.log")
 _has_role "SCS"                  && _LOG_SCS=$(         _collect_log "scs"             "/var/log/datacore/scs*.log" "/var/log/caringo/scs*.log")
 _has_role "LISTING_CACHE"        && _LOG_REDIS=$(       _collect_log "redis-server"    "/var/log/redis/*.log" "/var/log/redis/redis*.log")
 
@@ -1208,6 +1184,7 @@ cat <<EOF
   "is_prometheus": $IS_PROMETHEUS,
   "is_alertmanager": $IS_ALERTMANAGER,
   "is_grafana": $IS_GRAFANA,
+  "is_s3": $IS_S3,
   "is_content_ui": $IS_CONTENT_UI,
   "is_storage_ui": $IS_STORAGE_UI,
   "logs": $LOGS_JSON
