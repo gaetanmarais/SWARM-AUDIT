@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <!--
-  Version: 1.22.0
+  Version: 1.23.0
   Date:    2026-06-22
-  Notes:   Full-screen overlay "service indisponible" during container restart after self-update
+  Notes:   VIP badge on HAProxy MASTER node — cross-ref haproxy_vips vs network_interfaces
 -->
 <html lang="en">
 <head>
@@ -1435,7 +1435,20 @@ function _resultCardHtml(res) {
     ? `<span class="text-xs text-orange-400 border border-orange-900 rounded px-1.5 py-0.5">${t('discovered_badge')}</span>`
     : '';
 
+  // VIP badge: cross-reference haproxy_vips with actually-assigned IPs (network_interfaces)
+  // If a VIP is present on this node's interfaces → it's the current MASTER
+  const _activeIPs = new Set((res.network_interfaces || []).map(ni => ni.ip));
+  const _activeVIPs = (res.haproxy_vips || []).filter(v => _activeIPs.has(v.split('/')[0]));
+  const vipBadge = _activeVIPs.length
+    ? `<div class="mb-1.5 flex flex-wrap gap-1">${_activeVIPs.map(v =>
+        `<span class="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full bg-yellow-500/20 text-yellow-300 border border-yellow-500/40">
+          <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 1l2.39 6.742H19l-5.195 3.942 1.99 6.742L10 14.742l-5.795 3.684 1.99-6.742L1 7.742h6.61L10 1z" clip-rule="evenodd"/></svg>
+          VIP ${esc(v)}
+        </span>`).join('')}</div>`
+    : '';
+
   return `<div class="card rounded-xl p-4">
+    ${vipBadge}
     <div class="flex items-start justify-between">
       <div>
         <div class="flex items-center gap-2 flex-wrap">
