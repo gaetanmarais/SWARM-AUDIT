@@ -1,10 +1,10 @@
-# Version: 2.6.0
-# Date:    2026-06-21
-# Notes:   Add swarmctl_feeds to AuditResult; analyzed_configs/logs to AnalysisModule
+# Version: 2.7.0
+# Date:    2026-06-22
+# Notes:   DiscoveredStorageNode — extract chassis_id from SNMP healthreport
 
 from __future__ import annotations
 from typing import Optional, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 import uuid
 
 
@@ -104,6 +104,15 @@ class DiscoveredStorageNode(BaseModel):
     version: str = ""
     errors: str = ""
     health_report: Optional[dict] = None  # raw per-node SNMP JSON from swarmctl -Q healthreport
+    chassis_id: str = ""
+
+    @model_validator(mode="after")
+    def _extract_chassis_id(self) -> "DiscoveredStorageNode":
+        if not self.chassis_id and self.health_report:
+            self.chassis_id = (
+                self.health_report.get("SNMP objects", {}).get("Chassis Id", "") or ""
+            )
+        return self
 
 
 class DiscoveredEsNode(BaseModel):

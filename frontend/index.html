@@ -1485,7 +1485,7 @@ function _resultCardHtml(res) {
         </div>
         <div class="mt-2 flex flex-wrap gap-1">${roles}</div>
       </div>
-      <span class="text-xs text-slate-600">${esc(res.hostname||'')}</span>
+      <span class="text-xs text-slate-600 font-mono">${esc(res.hostname || res._chassis_id || '')}</span>
     </div>
     ${specs}
     ${detailBtn}
@@ -1521,6 +1521,14 @@ async function loadResults() {
   );
   document.getElementById('health-report-btn').classList.toggle('hidden', !hasHealthReport);
 
+  // Build IP → chassis_id lookup from all discovered storage nodes
+  const _chassisById = new Map();
+  results.forEach(r => {
+    (r.discovered_storage_nodes || []).forEach(sn => {
+      if (sn.chassis_id) _chassisById.set(sn.ip, sn.chassis_id);
+    });
+  });
+
   // Build synthetic result objects for discovered storage nodes not in inventory
   const auditedIps = new Set(results.map(r => r.server_ip));
   _discStorageCache = [];
@@ -1529,13 +1537,14 @@ async function loadResults() {
       if (!auditedIps.has(sn.ip)) {
         auditedIps.add(sn.ip);
         const sid = `disc-storage-${sn.ip}`;
+        const chassisId = sn.chassis_id || '';
         const synth = {
           server_id: sid,
-          server_name: sn.ip,
+          server_name: chassisId || sn.ip,
           server_ip: sn.ip,
           success: sn.status === 'ok',
-          roles: [{role:'STORAGE_NODE', reason:'swarmctl discovered'}],
-          hostname: '',
+          roles: [{role:'CASTOR', reason:'swarmctl discovered'}],
+          hostname: chassisId,
           discovered_storage_nodes: [],
           network_interfaces: [],
           installed_packages: [],
@@ -1555,6 +1564,13 @@ async function loadResults() {
         _discStorageCache.push(synth);
       }
     });
+  });
+
+  // Annotate inventory Castor nodes with chassis_id from the lookup map
+  results.forEach(res => {
+    if (!res.hostname && _chassisById.has(res.server_ip)) {
+      res._chassis_id = _chassisById.get(res.server_ip);
+    }
   });
 
   // Combine audited + discovered, with a separator if both exist
