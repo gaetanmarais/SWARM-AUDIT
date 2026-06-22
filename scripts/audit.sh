@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Version: 2.19.0
-# Date:    2026-06-21
-# Notes:   Add scsctl storage cluster show; swarmctl -Q feeds collection for FEED analysis.
+# Version: 2.20.0
+# Date:    2026-06-22
+# Notes:   S3 role (svc:cloudgateway); CONTENT_UI/STORAGE_UI via gateway.cfg sections [scsp]/[cluster_admin]
 
 set -euo pipefail
 
@@ -26,6 +26,17 @@ pkg_installed() {
     else
         return 1
     fi
+}
+
+# ini_section_enabled FILE SECTION — true if the INI section has "enabled = true"
+ini_section_enabled() {
+    local file="$1" section="$2"
+    [ -f "$file" ] || return 1
+    awk -v sec="[$section]" '
+        /^\[/        { in_sec = ($0 == sec) }
+        in_sec && /^\s*enabled\s*=\s*true\s*$/ { found=1; exit }
+        END { exit !found }
+    ' "$file"
 }
 
 # Pure-bash JSON string escaping — no sed, works on bash 3.1+
@@ -164,31 +175,49 @@ if $_rabbitmq_any \
     _is_lcs=true
 fi
 
+# Resolve gateway.cfg path once — reused by S3, CONTENT UI, STORAGE UI checks.
+_gw_cfg=""
+for _f in /etc/caringo/cloudgateway/gateway.cfg \
+          /etc/caringo/cloudgateway/cloudgateway.cfg; do
+    [ -f "$_f" ] && { _gw_cfg="$_f"; break; }
+done
+
 # CONTENT_GATEWAY: skip if this node is primarily an LCS node
 if ! $_is_lcs; then
     if $_gw_svc \
-       || ( $_gw_pkg && ( file_exists /etc/caringo/cloudgateway/gateway.cfg \
-                       || file_exists /etc/caringo/cloudgateway/cloudgateway.cfg ) ); then
+       || ( $_gw_pkg && [ -n "$_gw_cfg" ] ); then
         add_role "CONTENT_GATEWAY" "pkg:caringo-gateway + (svc running or gateway.cfg)"
     fi
 fi
 
+# ─── S3 (CloudGateway S3 API) ────────────────────────────────────────────────
+# The cloudgateway service itself is the S3 endpoint; its mere activation is
+# sufficient — no additional config check needed.
+if svc_active "cloudgateway"; then
+    add_role "S3" "svc:cloudgateway active"
+fi
+
 # ─── CONTENT UI (caringo-gateway-webui) ─────────────────────────────────────
-# Served from a Content Gateway host; detected by its own package/service/cfg.
+# Detected by package, service, dedicated cfg, OR [scsp] section enabled in
+# gateway.cfg (content portal is the SCSP web UI, co-located on GW nodes).
 if pkg_installed "^caringo-gateway-webui" \
    || svc_active "contentportal" || svc_active "content-portal" \
    || file_exists /opt/caringo/contentportal/conf/contentportal.cfg \
-   || file_exists /etc/caringo/contentportal/contentportal.cfg; then
-    add_role "CONTENT_UI" "pkg:caringo-gateway-webui or svc:contentportal"
+   || file_exists /etc/caringo/contentportal/contentportal.cfg \
+   || ini_section_enabled "$_gw_cfg" "scsp"; then
+    add_role "CONTENT_UI" "pkg:caringo-gateway-webui or svc:contentportal or gateway.cfg[scsp].enabled"
 fi
 
 # ─── STORAGE UI (caringo-storage-webui) ─────────────────────────────────────
-# Require SERVICE RUNNING or CONFIG FILE — package alone is not enough.
-# caringo-storage-webui is installed on HAProxy nodes as a dependency without
-# the storageui daemon being active, which produces false positives.
+# Detected by: service running, dedicated cfg, package, OR [cluster_admin]
+# section enabled in gateway.cfg (storage UI is co-located on GW nodes).
+# Package alone (without service or cfg confirmation) is not enough — it is
+# installed as a dep on HAProxy nodes without being active.
 if svc_active "storageui" \
-   || file_exists /opt/caringo/storageui/conf/storageui.cfg; then
-    add_role "STORAGE_UI" "svc:storageui active or cfg present"
+   || file_exists /opt/caringo/storageui/conf/storageui.cfg \
+   || ( pkg_installed "^caringo-storage-webui" && [ -n "$_gw_cfg" ] ) \
+   || ini_section_enabled "$_gw_cfg" "cluster_admin"; then
+    add_role "STORAGE_UI" "svc:storageui or cfg or pkg+gw or gateway.cfg[cluster_admin].enabled"
 fi
 
 # ─── SCS / CSN (Swarm Cluster Services / Platform Server) ───────────────────
