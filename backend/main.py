@@ -1,6 +1,6 @@
-# Version: 1.14.0
-# Date:    2026-06-21
-# Notes:   /api/system/version, /api/system/check-update, /api/system/update endpoints
+# Version: 1.15.0
+# Date:    2026-06-22
+# Notes:   lang param forwarded from frontend to analysis — Claude responds in the UI language
 
 from __future__ import annotations
 import asyncio
@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Response, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Response, BackgroundTasks, Body
 from pydantic import BaseModel as PydanticBaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
@@ -260,6 +260,7 @@ async def delete_server(server_id: str):
 _current_audit: Optional[AuditRun] = None
 _current_analysis: Optional[AnalysisResult] = None
 _analysis_cancel: list[bool] = [False]
+_analysis_lang: str = "en"
 
 
 async def _do_audit(audit_run: AuditRun, inv: Inventory) -> None:
@@ -282,7 +283,7 @@ async def _do_audit(audit_run: AuditRun, inv: Inventory) -> None:
         # _current_audit already points to audit_run (set at POST time).
         # Trigger analysis immediately — don't wait for disk writes.
         if audit_run.status == "done" and audit_run.results:
-            asyncio.create_task(_do_analysis(audit_run.results))
+            asyncio.create_task(_do_analysis(audit_run.results, lang=_analysis_lang))
 
         # Persist per-node JSON dumps (best-effort)
         DUMPS_DIR.mkdir(exist_ok=True)
@@ -320,10 +321,12 @@ def _get_audit_results() -> list[AuditResult]:
 
 
 @app.post("/api/audit/run")
-async def trigger_audit(background_tasks: BackgroundTasks):
-    global _current_audit
+async def trigger_audit(background_tasks: BackgroundTasks, body: dict = Body(default={})):
+    global _current_audit, _analysis_lang
     if _current_audit and _current_audit.status == "running":
         return {"status": "already_running", "audit_id": _current_audit.id}
+
+    _analysis_lang = body.get("lang", "en")
 
     inv = load_inventory()
     if not inv.servers:
@@ -420,7 +423,7 @@ async def discover_results():
 
 # ─── Analysis ────────────────────────────────────────────────────────────────
 
-async def _do_analysis(results: list[AuditResult]) -> None:
+async def _do_analysis(results: list[AuditResult], lang: str = "en") -> None:
     global _current_analysis, _analysis_cancel
     inv = load_inventory()
     mcp_url           = os.environ.get("CLAUDE_HUB_MCP_URL", "") or inv.settings.mcp_hub_url
@@ -465,7 +468,7 @@ async def _do_analysis(results: list[AuditResult]) -> None:
     try:
         result = await run_analysis(
             results, mcp_url, mcp_token, _analysis_cancel, anthropic_api_key, analysis_backend,
-            on_module_done=_module_cb, on_progress=_progress_cb,
+            on_module_done=_module_cb, on_progress=_progress_cb, lang=lang,
         )
         result.started_at = started
         result.finished_at = datetime.now(timezone.utc).isoformat()
@@ -507,11 +510,12 @@ async def analysis_results():
 
 
 @app.post("/api/analysis/run")
-async def retry_analysis():
+async def retry_analysis(body: dict = Body(default={})):
     """Re-run AI analysis on the last audit results without re-auditing servers."""
-    global _current_analysis
+    global _current_analysis, _analysis_lang
     if _current_analysis and _current_analysis.status == "running":
         raise HTTPException(409, "Analysis already running")
+    _analysis_lang = body.get("lang", _analysis_lang)
     results: list[AuditResult] = []
     if _current_audit and _current_audit.results:
         results = _current_audit.results
@@ -521,7 +525,7 @@ async def retry_analysis():
             results = inv.last_audit.results
     if not results:
         raise HTTPException(404, "No audit results to analyze")
-    asyncio.create_task(_do_analysis(results))
+    asyncio.create_task(_do_analysis(results, lang=_analysis_lang))
     return {"ok": True, "message": "Analysis started"}
 
 

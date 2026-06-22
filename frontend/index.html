@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <!--
-  Version: 1.20.0
+  Version: 1.21.0
   Date:    2026-06-22
-  Notes:   Help tab — discovery, audit script, role detection criteria, AI analysis modules
+  Notes:   Pass lang to /api/audit/run and /api/analysis/run — analysis prose in UI language
 -->
 <html lang="en">
 <head>
@@ -1296,7 +1296,7 @@ async function triggerAudit() {
   btn.disabled = true;
   btn.innerHTML = '<svg class="w-4 h-4 spinner" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 20v-5h-5M4 9a9 9 0 0115 0M20 15a9 9 0 01-15 0"/></svg> ' + t('btn_running');
   try {
-    const r = await fetch(API+'/api/audit/run', {method:'POST'});
+    const r = await fetch(API+'/api/audit/run', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({lang:_lang})});
     const d = await r.json();
     if (d.status === 'started' || d.status === 'already_running') {
       pollAuditStatus();
@@ -3683,7 +3683,7 @@ async function cancelAnalysis() {
 }
 
 async function retryAnalysis() {
-  const r = await fetch(API+'/api/analysis/run', {method:'POST'});
+  const r = await fetch(API+'/api/analysis/run', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({lang:_lang})});
   if (!r.ok) { alert('Could not start analysis: ' + await r.text()); return; }
   const badge = document.getElementById('analysis-badge');
   badge.classList.remove('hidden');

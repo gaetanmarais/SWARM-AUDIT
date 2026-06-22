@@ -1,6 +1,6 @@
-# Version: 3.6.0
-# Date:    2026-06-21
-# Notes:   Track analyzed_configs/logs per module; add FEED analysis from healthreport Feed Table + swarmctl feeds
+# Version: 3.7.0
+# Date:    2026-06-22
+# Notes:   lang param propagated to all Claude calls — analysis prose translated, technical terms kept in English
 
 from __future__ import annotations
 import asyncio
@@ -91,6 +91,29 @@ CROSS_SCHEMA = """{
     }
   ]
 }"""
+
+
+_LANG_NAMES: dict[str, str] = {
+    "fr": "French",
+    "en": "English",
+    "de": "German",
+    "it": "Italian",
+    "es": "Spanish",
+}
+
+def _lang_instruction(lang: str) -> str:
+    """Return a system-prompt instruction to answer in the requested language."""
+    name = _LANG_NAMES.get(lang, "English")
+    if name == "English":
+        return ""  # default — no extra instruction needed
+    return (
+        f"\nLANGUAGE: Respond in {name}. "
+        "Keep ALL technical terms in English: role names (HAPROXY, ELASTICSEARCH, etc.), "
+        "config file paths, config parameter keys, error messages, log excerpts, "
+        "DataCore product names, severity labels (CRITICAL/WARNING/INFO/OK), "
+        "JSON field names, and command names. "
+        "Translate only the prose: 'detail', 'recommendation', 'summary', 'doc_reference' descriptions."
+    )
 
 
 def _call_anthropic_direct(api_key: str, prompt: str, system: str) -> str:
@@ -487,6 +510,7 @@ async def _analyze_role_group(
     mcp_token: str,
     cancel_flag: list[bool],
     loop: asyncio.AbstractEventLoop,
+    lang: str = "en",
 ) -> AnalysisModule:
     """Analyze one role group with a single Claude call. Returns AnalysisModule."""
     async with sem:
@@ -556,6 +580,7 @@ async def _analyze_role_group(
             "  The 'servers' field of this module must list the storage node hostnames extracted from the log lines,\n"
             "  not the SCS server name. Limit log_findings to 6 entries max for CASTOR (more than other roles).\n"
             "Minimum 3 findings per role. Include ALL checked config items as findings (OK or not)."
+            + _lang_instruction(lang)
         )
 
         # For CASTOR role: instruct Claude to focus on log analysis, not config
@@ -648,6 +673,7 @@ async def _run_synthesis(
     mcp_token: str,
     cancel_flag: list[bool],
     loop: asyncio.AbstractEventLoop,
+    lang: str = "en",
 ) -> list[AnalysisFinding]:
     """Phase 2: coherence pass — all findings from all roles, look for cross-component issues."""
     if cancel_flag[0]:
@@ -696,6 +722,7 @@ async def _run_synthesis(
         "    Only cite URLs you are confident exist — do not invent them.\n"
         "Return ONLY valid JSON — no text, no markdown, no code fences.\n"
         "Severity: CRITICAL (immediate risk), WARNING (should fix), INFO (observation)."
+    + _lang_instruction(lang)
     )
 
     prompt = (
@@ -819,6 +846,7 @@ async def _analyze_feeds(
     mcp_token: str,
     cancel_flag: list[bool],
     loop: asyncio.AbstractEventLoop,
+    lang: str = "en",
 ) -> Optional[AnalysisModule]:
     """Dedicated FEED analysis — aggregates Feed Table data across all storage nodes."""
     async with sem:
@@ -863,6 +891,7 @@ async def _analyze_feeds(
             "Limit config_findings to 5 entries max. Limit log_findings to 3 entries max.\n"
             "The 'servers' field in each finding must list the affected storage node IPs (not server names).\n"
             "Severity: CRITICAL (feed errors/failures), WARNING (stalled/paused), INFO (observation), OK (healthy).\n"
+            + _lang_instruction(lang)
         )
         prompt = (
             f"ROLE TO ANALYZE: FEED\n\n"
@@ -907,6 +936,7 @@ async def run_analysis(
     analysis_backend: str = "auto",
     on_module_done: Optional[Callable[[AnalysisModule], None]] = None,
     on_progress: Optional[Callable[[str], None]] = None,
+    lang: str = "en",
 ) -> AnalysisResult:
     """
     Orchestrate chunked analysis:
@@ -981,7 +1011,7 @@ async def run_analysis(
         module = await _analyze_role_group(
             role, servers, rag_cache, sem,
             want_direct, anthropic_api_key, mcp_url, mcp_token,
-            cancel_flag, loop,
+            cancel_flag, loop, lang=lang,
         )
         done_count += 1
         if on_progress:
@@ -1002,7 +1032,7 @@ async def run_analysis(
             module = await _analyze_feeds(
                 results, rag_cache, sem,
                 want_direct, anthropic_api_key, mcp_url, mcp_token,
-                cancel_flag, loop,
+                cancel_flag, loop, lang=lang,
             )
             done_count += 1
             if on_progress:
@@ -1028,7 +1058,7 @@ async def run_analysis(
             cross_corrs = await _run_synthesis(
                 modules, results,
                 want_direct, anthropic_api_key, mcp_url, mcp_token,
-                cancel_flag, loop,
+                cancel_flag, loop, lang=lang,
             )
         except Exception as exc:
             log.error("Synthesis failed: %s", exc)
