@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Version: 2.20.0
+# Version: 2.21.0
 # Date:    2026-06-22
-# Notes:   S3 role (svc:cloudgateway); CONTENT_UI/STORAGE_UI via gateway.cfg sections [scsp]/[cluster_admin]
+# Notes:   Fix ini_section_enabled for mawk (POSIX); S3 via _gw_svc; IS_CONTENT/STORAGE_UI check gateway.cfg
 
 set -euo pipefail
 
@@ -28,13 +28,14 @@ pkg_installed() {
     fi
 }
 
-# ini_section_enabled FILE SECTION — true if the INI section has "enabled = true"
+# ini_section_enabled FILE SECTION — true if the INI section has enabled = true/yes/1
+# Uses [[:space:]] instead of \s for POSIX awk (mawk) compatibility.
 ini_section_enabled() {
     local file="$1" section="$2"
     [ -f "$file" ] || return 1
     awk -v sec="[$section]" '
         /^\[/        { in_sec = ($0 == sec) }
-        in_sec && /^\s*enabled\s*=\s*true\s*$/ { found=1; exit }
+        in_sec && /^[[:space:]]*enabled[[:space:]]*=[[:space:]]*(true|yes|1)[[:space:]]*$/ { found=1; exit }
         END { exit !found }
     ' "$file"
 }
@@ -191,10 +192,9 @@ if ! $_is_lcs; then
 fi
 
 # ─── S3 (CloudGateway S3 API) ────────────────────────────────────────────────
-# The cloudgateway service itself is the S3 endpoint; its mere activation is
-# sufficient — no additional config check needed.
-if svc_active "cloudgateway"; then
-    add_role "S3" "svc:cloudgateway active"
+# Reuse _gw_svc which already covers both "cloudgateway" and "caringo-gateway".
+if $_gw_svc; then
+    add_role "S3" "svc:cloudgateway/caringo-gateway active"
 fi
 
 # ─── CONTENT UI (caringo-gateway-webui) ─────────────────────────────────────
@@ -391,14 +391,17 @@ fi
 if svc_active "contentportal" || svc_active "content-portal" \
    || file_exists /opt/caringo/contentportal/conf/contentportal.cfg \
    || file_exists /etc/caringo/contentportal/contentportal.cfg \
-   || pkg_installed "^caringo-gateway-webui"; then
+   || pkg_installed "^caringo-gateway-webui" \
+   || ini_section_enabled "$_gw_cfg" "scsp"; then
     IS_CONTENT_UI=true
 fi
 
 # Storage UI (caringo storage management UI)
 if svc_active "storageui" || svc_active "swarm-ui" || svc_active "storage-ui" \
    || file_exists /opt/caringo/storageui/conf/storageui.cfg \
-   || port_listening 91; then
+   || port_listening 91 \
+   || ( pkg_installed "^caringo-storage-webui" && [ -n "$_gw_cfg" ] ) \
+   || ini_section_enabled "$_gw_cfg" "cluster_admin"; then
     IS_STORAGE_UI=true
 fi
 

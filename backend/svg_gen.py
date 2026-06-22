@@ -1,6 +1,6 @@
-# Version: 13.2.0
-# Date:    2026-06-21
-# Notes:   CSS custom properties for light/dark theme support; castor log path fix
+# Version: 13.3.0
+# Date:    2026-06-22
+# Notes:   Fix SVG horizontal centering — tile area was shifted right by TILE_MARGIN_X
 
 from __future__ import annotations
 import html as _html_mod
@@ -794,7 +794,8 @@ def generate_svg(results: list[AuditResult], collected_at: str = "", build: str 
     tile_area_w = max_cols_actual * NODE_W + (max_cols_actual - 1) * H_GAP
     pad_l = BACKBONE_PAD_L if has_left else TILE_MARGIN_X
     pad_r = BACKBONE_PAD_R if has_right else TILE_MARGIN_X
-    total_w = pad_l + tile_area_w + TILE_MARGIN_X + pad_r
+    # Symmetric: tile area starts at pad_l + TILE_MARGIN_X, same margin on right before pad_r
+    total_w = pad_l + TILE_MARGIN_X + tile_area_w + TILE_MARGIN_X + pad_r
 
     grid_step = NODE_W + H_GAP
     positions: dict[str, tuple[int, int]] = {}
