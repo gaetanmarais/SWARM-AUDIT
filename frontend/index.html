@@ -1451,7 +1451,7 @@ function _resultCardHtml(res) {
     specs = `<p class="text-red-400 text-xs mt-2">${esc(res.error||'Unknown error')}</p>`;
   }
 
-  const primaryRole = (res.roles || [{role:'UNKNOWN'}])[0].role;
+  const primaryRole = res.roles?.[0]?.role || '';
   const isStorageNode = primaryRole === 'STORAGE_NODE';
   const detailBtn = (res.success || res._discovered)
     ? `<button class="btn btn-ghost text-xs mt-2 detail-btn" data-server-id="${res.server_id}" data-is-sn="${isStorageNode ? '1' : '0'}">${t('detail_btn')}</button>`
