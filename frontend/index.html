@@ -3641,7 +3641,7 @@ function _setupSvgPan() {
 }
 
 // ─── Tab navigation ───────────────────────────────────────────────────────────
-const TABS = ['diagram', 'results', 'analysis', 'discovery', 'servers', 'credentials'];
+const TABS = ['diagram', 'results', 'analysis', 'discovery', 'servers', 'credentials', 'help'];
 function showTab(name) {
   TABS.forEach(t => {
     document.getElementById('panel-' + t)?.classList.toggle('hidden', t !== name);
