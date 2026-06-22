@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <!--
-  Version: 1.21.0
+  Version: 1.22.0
   Date:    2026-06-22
-  Notes:   Pass lang to /api/audit/run and /api/analysis/run — analysis prose in UI language
+  Notes:   Full-screen overlay "service indisponible" during container restart after self-update
 -->
 <html lang="en">
 <head>
@@ -3910,13 +3910,38 @@ async function doUpdate() {
     await fetch(API + '/api/system/update', { method: 'POST' });
   } catch(e) { /* container is restarting — expected */ }
 
-  // Poll until the API comes back, then reload
-  status.textContent = 'Redémarrage du conteneur…';
+  // Show full-screen overlay while the container restarts (~90s)
+  let overlay = document.getElementById('update-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'update-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(2,6,23,0.92);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.5rem';
+    overlay.innerHTML = `
+      <svg class="w-10 h-10 spinner" style="color:#60a5fa" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M4 4v5h5M20 20v-5h-5M4 9a9 9 0 0115 0M20 15a9 9 0 01-15 0"/>
+      </svg>
+      <p style="color:#94a3b8;font-size:0.9rem;font-weight:600">Service temporairement indisponible</p>
+      <p id="update-overlay-msg" style="color:#64748b;font-size:0.75rem">Redémarrage du conteneur en cours…</p>
+      <p id="update-overlay-timer" style="color:#475569;font-size:0.7rem;font-family:monospace"></p>`;
+    document.body.appendChild(overlay);
+  } else {
+    overlay.style.display = 'flex';
+  }
+
+  const overlayMsg   = document.getElementById('update-overlay-msg');
+  const overlayTimer = document.getElementById('update-overlay-timer');
+  const startTs = Date.now();
+
   let attempts = 0;
   const poll = setInterval(async () => {
     attempts++;
+    const elapsed = Math.round((Date.now() - startTs) / 1000);
+    overlayTimer.textContent = `${elapsed}s écoulées`;
+
     if (attempts > 60) {
       clearInterval(poll);
+      overlay.style.display = 'none';
       status.className = 'text-xs mb-3 text-red-400';
       status.textContent = 'Timeout — vérifiez les logs du conteneur.';
       btn.disabled = false;
@@ -3927,9 +3952,9 @@ async function doUpdate() {
       const r = await fetch(API + '/api/system/version', { cache: 'no-store' });
       if (r.ok) {
         clearInterval(poll);
-        status.className = 'text-xs mb-3 text-green-400';
-        status.textContent = 'Mise à jour réussie — rechargement…';
-        setTimeout(() => location.reload(), 1500);
+        overlayMsg.textContent = 'Mise à jour réussie — rechargement…';
+        overlayTimer.textContent = '';
+        setTimeout(() => location.reload(), 1200);
       }
     } catch(e) { /* still restarting */ }
   }, 2000);
