@@ -1,6 +1,6 @@
-# Version: 13.4.0
-# Date:    2026-06-22
-# Notes:   S3/CONTENT_UI/STORAGE_UI demoted to feature badges; UNKNOWN removed from role maps
+# Version: 13.5.0
+# Date:    2026-06-23
+# Notes:   Show chassis_id on CASTOR tiles; coherence dedup; maxconn/CPU/storage-count checks
 
 from __future__ import annotations
 import html as _html_mod
@@ -654,6 +654,13 @@ def generate_svg(results: list[AuditResult], collected_at: str = "", build: str 
     for r in results:
         layers.setdefault(_layer_of(r), []).append(r)
 
+    # ── Chassis ID lookup (all discovered nodes, including those matching audited IPs) ──
+    chassis_map: dict[str, str] = {}  # ip → chassis_id
+    for r in results:
+        for sn in r.discovered_storage_nodes:
+            if sn.chassis_id:
+                chassis_map[sn.ip] = sn.chassis_id
+
     # ── Discovered storage nodes ──────────────────────────────────────────────
     swarmctl_lookup: dict[str, DiscoveredStorageNode] = {}
     audited_ips: set[str] = set()
@@ -1117,7 +1124,19 @@ def generate_svg(results: list[AuditResult], collected_at: str = "", build: str 
             f'{_esc(name_str)}</text>'
         )
 
-        # 4b. Feature badges (NTP, DHCP, PROM, GRAFANA …)
+        # 4b. Chassis ID subtitle (for CASTOR/STORAGE_NODE tiles)
+        _tile_primary_role = (r.roles[0].role if r.roles else "") if hasattr(r.roles[0], "role") else (r.roles[0].get("role", "") if r.roles else "")
+        if _tile_primary_role in ("CASTOR", "STORAGE_NODE"):
+            _cid = chassis_map.get(r.server_ip) or (r.hostname or "")
+            if _cid:
+                _cid_short = (_cid[:18] + "…") if len(_cid) > 18 else _cid
+                parts.append(
+                    f'  <text x="{body_cx}" y="{y + 102}" text-anchor="middle" '
+                    f'fill="var(--text-muted,#64748b)" font-size="7.5" font-family="monospace">'
+                    f'{_esc(_cid_short)}</text>'
+                )
+
+        # 4c. Feature badges (NTP, DHCP, PROM, GRAFANA …)
         feat_active = [
             (label, col) for (field, label, col) in FEATURE_BADGES
             if getattr(r, field, False)
@@ -1129,7 +1148,8 @@ def generate_svg(results: list[AuditResult], collected_at: str = "", build: str 
             for ri, row in enumerate(rows):
                 total_w = len(row) * BW + (len(row) - 1) * BGAP
                 bx0 = body_cx - total_w // 2
-                by  = y + 100 + ri * (BH + 3)
+                _feat_y_base = y + 115 if _tile_primary_role in ("CASTOR", "STORAGE_NODE") and (chassis_map.get(r.server_ip) or r.hostname) else y + 100
+                by  = _feat_y_base + ri * (BH + 3)
                 for fi, (label, col) in enumerate(row):
                     bx = bx0 + fi * (BW + BGAP)
                     parts.append(

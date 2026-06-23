@@ -1,6 +1,6 @@
-# Version: 3.7.0
-# Date:    2026-06-22
-# Notes:   lang param propagated to all Claude calls — analysis prose translated, technical terms kept in English
+# Version: 3.8.0
+# Date:    2026-06-23
+# Notes:   coherence dedup (covered_titles exclusion list); 7 mandatory cross-checks; cpu_count in topo_block
 
 from __future__ import annotations
 import asyncio
@@ -680,7 +680,7 @@ async def _run_synthesis(
     # Full findings from every role module
     findings_block = "\n\n".join(_findings_block(m) for m in modules)
 
-    # Topology: connectivity between servers
+    # Topology: connectivity between servers — include CPU count for sizing checks
     topo_lines: list[str] = []
     for r in results:
         hb = len(r.haproxy_backends) if r.haproxy_backends else 0
@@ -689,10 +689,12 @@ async def _run_synthesis(
         gl = ", ".join(r.gw_lcs_ips) if r.gw_lcs_ips else "—"
         cn = len(r.discovered_storage_nodes) if r.discovered_storage_nodes else 0
         ram = r.ram.total_mb if r.ram else 0
+        cpu = r.cpu.get("count", "?") if isinstance(r.cpu, dict) else (r.cpu.count if r.cpu else "?")
+        roles_str = ", ".join(rd.role for rd in r.roles) if r.roles else "—"
         topo_lines.append(
-            f"  {r.server_name} ({r.server_ip}) "
+            f"  {r.server_name} ({r.server_ip}) roles={roles_str} cpu={cpu} ram={ram}MB "
             f"haproxy_backends={hb} gw→swarm={gc} gw→es={ge} "
-            f"gw→lcs={gl} castor_nodes={cn} ram={ram}MB"
+            f"gw→lcs={gl} castor_nodes={cn}"
         )
     topo_block = "\n".join(topo_lines)
 
@@ -704,28 +706,50 @@ async def _run_synthesis(
                 cfg_lines.append(f"  [{r.server_name}] {path}:\n{content[:800]}")
     cfg_block = "\n".join(cfg_lines)
 
+    # Titles of all per-role findings — coherence must NOT repeat these
+    covered_titles: list[str] = []
+    for m in modules:
+        for f in (m.config_findings or []) + (m.log_findings or []):
+            if f.title:
+                covered_titles.append(f"- {f.title}")
+    covered_block = "\n".join(covered_titles[:60])  # cap to avoid prompt bloat
+
     system = (
         "You are a senior DataCore Swarm infrastructure architect performing a cross-component coherence audit.\n"
-        "You have received independent per-role analyses. Your job is to find issues that SPAN multiple roles:\n"
-        "  - Numerical mismatches (e.g. HAProxy maxconn 10000 but GW connection pool 200 — bottleneck)\n"
+        "You have received independent per-role analyses. Your job is to find issues that SPAN multiple roles.\n"
+        "STRICT RULE: Do NOT produce findings whose title or topic matches any item in the ALREADY COVERED list below.\n"
+        "Only surface genuinely cross-cutting issues that no single per-role module could see by itself.\n\n"
+        "MANDATORY CROSS-CHECKS — you MUST explicitly check and report each of these (even if OK):\n"
+        "  1. HAProxy maxconn vs Gateway thread/connection pool: if HA maxconn >> GW threads, GW is the bottleneck.\n"
+        "     Report the actual values from both sides and whether they are aligned.\n"
+        "  2. HAProxy maxconn vs CPU count: rough rule = maxconn should not exceed ~1000× cpu_count.\n"
+        "     Flag extreme over-provisioning (OOM risk) or under-provisioning (connection drops).\n"
+        "  3. Storage node count vs replication factor: if the cluster has fewer nodes than the replication factor,\n"
+        "     data durability is compromised. Extract both values and flag any mismatch.\n"
+        "  4. Gateway connection pool per storage node vs total storage node count:\n"
+        "     if pool < node_count, not all nodes can be reached simultaneously.\n"
+        "  5. ES heap size vs available RAM: heap should be ≤50% of RAM and ≤30GB. Flag violations.\n"
+        "  6. Version consistency across ES nodes: all nodes must run the same version.\n"
+        "  7. NTP/syslog server alignment: all nodes should point to the same SCS NTP/syslog server.\n\n"
+        "Other cross-cutting patterns to look for:\n"
         "  - Config values on one side that contradict or are inconsistent with another side\n"
         "  - Missing symmetry (a parameter set on role A that should mirror a setting on role B)\n"
         "  - Version skews, protocol mismatches, or topology gaps\n"
-        "  - Recommendations from different roles that conflict with each other\n"
-        "Do NOT repeat findings already covered in the per-role analyses. Only surface genuinely cross-cutting issues.\n"
+        "  - Recommendations from different roles that conflict with each other\n\n"
         "For every finding you MUST populate:\n"
         "  current_value: the conflicting values from each component (server name + parameter = value).\n"
         "  corrected_config: the aligned values to set on each affected component.\n"
         "  doc_reference: DataCore documentation page title + URL on https://documentation.datacore.com/ if relevant.\n"
         "    Only cite URLs you are confident exist — do not invent them.\n"
         "Return ONLY valid JSON — no text, no markdown, no code fences.\n"
-        "Severity: CRITICAL (immediate risk), WARNING (should fix), INFO (observation)."
-    + _lang_instruction(lang)
+        "Severity: CRITICAL (immediate risk), WARNING (should fix), INFO (observation), OK (explicitly verified OK)."
+        + _lang_instruction(lang)
     )
 
     prompt = (
+        f"ALREADY COVERED — do NOT repeat findings matching these titles:\n{covered_block}\n\n"
         f"PER-ROLE FINDINGS:\n{findings_block[:10000]}\n\n"
-        f"TOPOLOGY & CONNECTIVITY:\n{topo_block}\n\n"
+        f"TOPOLOGY & CONNECTIVITY (includes CPU counts):\n{topo_block}\n\n"
         f"KEY CONFIG EXCERPTS (cross-reference):\n{cfg_block[:4000]}\n\n"
         "Identify coherence issues that span multiple roles or servers.\n"
         f"Return ONLY:\n{CROSS_SCHEMA}"
