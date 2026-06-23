@@ -614,7 +614,7 @@ def _extract_cluster_name(results: list[AuditResult]) -> str:
 
 
 @app.get("/api/export-report")
-async def export_report():
+async def export_report(lang: str = "en"):
     """Self-contained 3-tab HTML report (Diagram / Audit / Analysis) — no backend required."""
     results: list[AuditResult] = []
     if _current_audit and _current_audit.results:
@@ -640,7 +640,7 @@ async def export_report():
     filename = f"arcis-swarm-{safe_cluster}-{date_str}.html"
 
     svg_content = generate_svg(results, collected_at=generated_at, build=f"v{APP_VERSION}")
-    html_content = generate_report_html(results, svg_content, analysis_obj, generated_at, cluster_name)
+    html_content = generate_report_html(results, svg_content, analysis_obj, generated_at, cluster_name, lang=lang)
 
     return Response(
         content=html_content.encode("utf-8"),

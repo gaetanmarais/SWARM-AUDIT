@@ -1,6 +1,6 @@
-# Version: 1.2.0
-# Date:    2026-06-21
-# Notes:   Add connections section + raw JSON collapsible to server cards in static export.
+# Version: 1.3.0
+# Date:    2026-06-23
+# Notes:   Multilingual export — lang param propagated from frontend.
 
 from __future__ import annotations
 import html
@@ -9,6 +9,88 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from models import AuditResult, AnalysisResult
+
+REPORT_STRINGS: dict[str, dict[str, str]] = {
+    "fr": {
+        "tab_diagram": "Diagramme", "tab_audit": "Audit", "tab_analysis": "Analyse IA",
+        "specs": "Specs", "disks": "Disques", "listen_ports": "Ports en écoute",
+        "connections": "Connexions actives", "config_files": "Fichiers de configuration",
+        "app_logs": "Logs applicatifs (24h)", "raw_json": "JSON brut",
+        "no_diagram": "Aucun diagramme disponible.",
+        "no_audit": "Aucune donnée d'audit disponible.",
+        "no_analysis": "Aucune analyse disponible.",
+        "servers": "Serveurs", "recommendation": "Recommandation",
+        "current_value": "Valeur actuelle", "corrected_config": "Config corrigée",
+        "documentation": "Documentation", "log_findings": "Findings logs",
+        "cross_correlations": "Corrélations inter-composants",
+        "critical": "CRITIQUE", "generated": "Généré le",
+        "servers_tag": "Serveurs",
+    },
+    "en": {
+        "tab_diagram": "Diagram", "tab_audit": "Audit", "tab_analysis": "AI Analysis",
+        "specs": "Specs", "disks": "Disks", "listen_ports": "Listen ports",
+        "connections": "Active connections", "config_files": "Config files",
+        "app_logs": "Application logs (24h)", "raw_json": "Raw JSON",
+        "no_diagram": "No diagram available.",
+        "no_audit": "No audit data available.",
+        "no_analysis": "No analysis available.",
+        "servers": "Servers", "recommendation": "Recommendation",
+        "current_value": "Current value", "corrected_config": "Corrected config",
+        "documentation": "Documentation", "log_findings": "Log findings",
+        "cross_correlations": "Cross-component correlations",
+        "critical": "CRITICAL", "generated": "Generated",
+        "servers_tag": "Servers",
+    },
+    "de": {
+        "tab_diagram": "Diagramm", "tab_audit": "Audit", "tab_analysis": "KI-Analyse",
+        "specs": "Spezifikationen", "disks": "Festplatten", "listen_ports": "Lausch-Ports",
+        "connections": "Aktive Verbindungen", "config_files": "Konfigurationsdateien",
+        "app_logs": "Anwendungslogs (24h)", "raw_json": "Roh-JSON",
+        "no_diagram": "Kein Diagramm verfügbar.",
+        "no_audit": "Keine Audit-Daten verfügbar.",
+        "no_analysis": "Keine Analyse verfügbar.",
+        "servers": "Server", "recommendation": "Empfehlung",
+        "current_value": "Aktueller Wert", "corrected_config": "Korrigierte Konfiguration",
+        "documentation": "Dokumentation", "log_findings": "Log-Befunde",
+        "cross_correlations": "Komponentenübergreifende Korrelationen",
+        "critical": "KRITISCH", "generated": "Erstellt am",
+        "servers_tag": "Server",
+    },
+    "it": {
+        "tab_diagram": "Diagramma", "tab_audit": "Audit", "tab_analysis": "Analisi IA",
+        "specs": "Specifiche", "disks": "Dischi", "listen_ports": "Porte in ascolto",
+        "connections": "Connessioni attive", "config_files": "File di configurazione",
+        "app_logs": "Log applicativi (24h)", "raw_json": "JSON grezzo",
+        "no_diagram": "Nessun diagramma disponibile.",
+        "no_audit": "Nessun dato di audit disponibile.",
+        "no_analysis": "Nessuna analisi disponibile.",
+        "servers": "Server", "recommendation": "Raccomandazione",
+        "current_value": "Valore attuale", "corrected_config": "Config corretta",
+        "documentation": "Documentazione", "log_findings": "Finding log",
+        "cross_correlations": "Correlazioni tra componenti",
+        "critical": "CRITICO", "generated": "Generato il",
+        "servers_tag": "Server",
+    },
+    "es": {
+        "tab_diagram": "Diagrama", "tab_audit": "Auditoría", "tab_analysis": "Análisis IA",
+        "specs": "Especificaciones", "disks": "Discos", "listen_ports": "Puertos en escucha",
+        "connections": "Conexiones activas", "config_files": "Archivos de configuración",
+        "app_logs": "Logs de aplicación (24h)", "raw_json": "JSON bruto",
+        "no_diagram": "No hay diagrama disponible.",
+        "no_audit": "No hay datos de auditoría disponibles.",
+        "no_analysis": "No hay análisis disponible.",
+        "servers": "Servidores", "recommendation": "Recomendación",
+        "current_value": "Valor actual", "corrected_config": "Config corregida",
+        "documentation": "Documentación", "log_findings": "Findings de logs",
+        "cross_correlations": "Correlaciones entre componentes",
+        "critical": "CRÍTICO", "generated": "Generado el",
+        "servers_tag": "Servidores",
+    },
+}
+
+def _s(strings: dict, key: str) -> str:
+    return strings.get(key, REPORT_STRINGS["en"].get(key, key))
+
 
 SEVERITY_COLOR = {
     "CRITICAL": ("#fee2e2", "#991b1b", "#dc2626"),   # bg, text, badge-bg
@@ -107,9 +189,9 @@ def _sev_badge(sev: str) -> str:
     return f'<span class="sev-badge" style="background:{bg};color:{fg}">{html.escape(sev)}</span>'
 
 
-def _finding_html(f: dict) -> str:
+def _finding_html(f: dict, strings: dict | None = None) -> str:
+    st = strings or REPORT_STRINGS["en"]
     sev = f.get("severity", "INFO")
-    _, _, badge_bg = SEVERITY_COLOR.get(sev, ("#334155", "#e2e8f0", "#334155"))
     bg, fg, _ = SEVERITY_COLOR.get(sev, ("#1e293b", "#e2e8f0", "#334155"))
     title = html.escape(f.get("title", ""))
     detail = html.escape(f.get("detail", ""))
@@ -121,29 +203,26 @@ def _finding_html(f: dict) -> str:
 
     meta_parts = ""
     if cur:
-        meta_parts += f'<div class="meta-block"><div class="label">Current value</div><div class="value">{cur}</div></div>'
+        meta_parts += f'<div class="meta-block"><div class="label">{_s(st,"current_value")}</div><div class="value">{cur}</div></div>'
     if fix:
-        meta_parts += f'<div class="meta-block"><div class="label">Corrected config</div><div class="value">{fix}</div></div>'
+        meta_parts += f'<div class="meta-block"><div class="label">{_s(st,"corrected_config")}</div><div class="value">{fix}</div></div>'
     if reco:
-        meta_parts += f'<div class="meta-block reco" style="grid-column:1/-1"><div class="label">Recommendation</div><div class="value">{reco}</div></div>'
+        meta_parts += f'<div class="meta-block reco" style="grid-column:1/-1"><div class="label">{_s(st,"recommendation")}</div><div class="value">{reco}</div></div>'
     if doc:
         doc_esc = html.escape(doc)
-        # If it looks like a URL, wrap in <a>
-        if doc.startswith("http"):
-            doc_html = f'<a href="{doc_esc}" target="_blank" rel="noopener">{doc_esc}</a>'
-        else:
-            doc_html = doc_esc
-        meta_parts += f'<div class="meta-block doc" style="grid-column:1/-1"><div class="label">Documentation</div><div class="value">{doc_html}</div></div>'
+        doc_html = f'<a href="{doc_esc}" target="_blank" rel="noopener">{doc_esc}</a>' if doc.startswith("http") else doc_esc
+        meta_parts += f'<div class="meta-block doc" style="grid-column:1/-1"><div class="label">{_s(st,"documentation")}</div><div class="value">{doc_html}</div></div>'
 
     return f"""<div class="finding" style="background:{bg}10">
   {_sev_badge(sev)}<span class="finding-title">{title}</span>
   {f'<div class="finding-detail">{detail}</div>' if detail else ''}
   {f'<div class="finding-meta">{meta_parts}</div>' if meta_parts else ''}
-  {f'<div class="servers-tag">Servers: {html.escape(servers)}</div>' if servers else ''}
+  {f'<div class="servers-tag">{_s(st,"servers_tag")}: {html.escape(servers)}</div>' if servers else ''}
 </div>"""
 
 
-def _server_card(r: dict) -> str:
+def _server_card(r: dict, strings: dict | None = None) -> str:
+    st = strings or REPORT_STRINGS["en"]
     name = html.escape(r.get("server_name", r.get("server_id", "?")))
     ip = html.escape(r.get("server_ip", ""))
     roles = r.get("roles", [])
@@ -226,15 +305,15 @@ def _server_card(r: dict) -> str:
     {role_badges}
   </summary>
   <div class="server-body">
-    {'<div class="server-section"><h3>Specs</h3>' + specs_rows + '</div>' if specs_rows else ''}
-    {'<div class="server-section"><h3>Disks</h3>' + disk_rows + '</div>' if disk_rows else ''}
-    {'<div class="server-section"><h3>Listen ports</h3><div class="kv"><span class="v">' + ports_str + '</span></div></div>' if ports_str else ''}
-    {'<div class="server-section" style="grid-column:1/-1"><h3>Active connections</h3>' + conn_rows + '</div>' if conn_rows else ''}
-    {'<div class="server-section" style="grid-column:1/-1"><h3>Config files</h3>' + cfg_blocks + '</div>' if cfg_blocks else ''}
-    {'<div class="server-section" style="grid-column:1/-1"><h3>Application logs (24h)</h3>' + log_blocks + '</div>' if log_blocks else ''}
+    {'<div class="server-section"><h3>' + _s(st,'specs') + '</h3>' + specs_rows + '</div>' if specs_rows else ''}
+    {'<div class="server-section"><h3>' + _s(st,'disks') + '</h3>' + disk_rows + '</div>' if disk_rows else ''}
+    {'<div class="server-section"><h3>' + _s(st,'listen_ports') + '</h3><div class="kv"><span class="v">' + ports_str + '</span></div></div>' if ports_str else ''}
+    {'<div class="server-section" style="grid-column:1/-1"><h3>' + _s(st,'connections') + '</h3>' + conn_rows + '</div>' if conn_rows else ''}
+    {'<div class="server-section" style="grid-column:1/-1"><h3>' + _s(st,'config_files') + '</h3>' + cfg_blocks + '</div>' if cfg_blocks else ''}
+    {'<div class="server-section" style="grid-column:1/-1"><h3>' + _s(st,'app_logs') + '</h3>' + log_blocks + '</div>' if log_blocks else ''}
     <div class="server-section" style="grid-column:1/-1">
       <details>
-        <summary style="cursor:pointer;color:#64748b;font-size:.75rem;padding:.25rem 0">Raw JSON</summary>
+        <summary style="cursor:pointer;color:#64748b;font-size:.75rem;padding:.25rem 0">{_s(st, 'raw_json')}</summary>
         <div class="cfg-block" style="max-height:400px">{raw_json}</div>
       </details>
     </div>
@@ -242,29 +321,32 @@ def _server_card(r: dict) -> str:
 </details>"""
 
 
-def _role_section_html(module: dict) -> str:
+def _role_section_html(module: dict, strings: dict | None = None) -> str:
+    st = strings or REPORT_STRINGS["en"]
     role = html.escape(module.get("role", "?"))
     servers = ", ".join(html.escape(s) for s in module.get("servers", []))
     summary = html.escape(module.get("summary", ""))
     cfg_findings = module.get("config_findings", [])
     log_findings = module.get("log_findings", [])
 
-    # Count by severity
-    counts = {}
-    for f in cfg_findings + log_findings:
-        s = f.get("severity", "INFO")
-        counts[s] = counts.get(s, 0) + 1
+    # Merge all findings sorted by severity
+    SEV_ORDER = {"CRITICAL": 0, "WARNING": 1, "INFO": 2, "OK": 3}
+    all_findings = sorted(
+        [dict(f, _src="cfg") for f in cfg_findings] + [dict(f, _src="log") for f in log_findings],
+        key=lambda f: SEV_ORDER.get(f.get("severity", "INFO"), 9),
+    )
+
+    counts: dict[str, int] = {}
+    for f in all_findings:
+        sev = f.get("severity", "INFO")
+        counts[sev] = counts.get(sev, 0) + 1
     badges = "".join(
         f'<span class="sev-badge" style="background:{SEVERITY_COLOR[s][0]};color:{SEVERITY_COLOR[s][1]}">'
         f'{counts[s]} {s}</span>'
         for s in ["CRITICAL", "WARNING", "INFO", "OK"] if s in counts
     )
 
-    cfg_html = "".join(_finding_html(f) for f in cfg_findings)
-    log_html = ""
-    if log_findings:
-        inner = "".join(_finding_html(f) for f in log_findings)
-        log_html = f'<div class="log-findings-section"><div class="log-findings-label">Log findings</div>{inner}</div>'
+    findings_html = "".join(_finding_html(f, st) for f in all_findings)
 
     return f"""<div class="role-section">
   <div class="role-header">
@@ -275,8 +357,7 @@ def _role_section_html(module: dict) -> str:
     <div style="margin-left:auto;display:flex;gap:.35rem;flex-wrap:wrap">{badges}</div>
   </div>
   <div class="findings-list">
-    {cfg_html}
-    {log_html}
+    {findings_html}
   </div>
 </div>"""
 
@@ -287,33 +368,35 @@ def generate_report_html(
     analysis: Optional[AnalysisResult],
     generated_at: Optional[str] = None,
     cluster_name: str = "swarm",
+    lang: str = "en",
 ) -> str:
     if generated_at is None:
         generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
+    st = REPORT_STRINGS.get(lang, REPORT_STRINGS["en"])
     results_dicts = [r.model_dump() for r in results]
     analysis_dict = analysis.model_dump() if analysis else {}
 
     # ── Page: Diagram ──────────────────────────────────────────────────────────
     diagram_html = f'<div id="diagram-wrap">{svg_content}</div>' if svg_content else \
-        '<p style="color:#64748b;padding:2rem">No diagram available.</p>'
+        f'<p style="color:#64748b;padding:2rem">{_s(st,"no_diagram")}</p>'
 
     # ── Page: Audit ───────────────────────────────────────────────────────────
     if results_dicts:
-        audit_html = "".join(_server_card(r) for r in results_dicts)
+        audit_html = "".join(_server_card(r, st) for r in results_dicts)
     else:
-        audit_html = '<p style="color:#64748b;padding:2rem">No audit data available.</p>'
+        audit_html = f'<p style="color:#64748b;padding:2rem">{_s(st,"no_audit")}</p>'
 
     # ── Page: Analysis ────────────────────────────────────────────────────────
     modules = analysis_dict.get("modules", [])
     cross = analysis_dict.get("cross_correlations", [])
     if modules:
-        analysis_html = "".join(_role_section_html(m) for m in modules)
+        analysis_html = "".join(_role_section_html(m, st) for m in modules)
         if cross:
-            cross_items = "".join(_finding_html(f) for f in cross)
-            analysis_html += f'<div class="cross-section"><div class="cross-header">Cross-component correlations</div>{cross_items}</div>'
+            cross_items = "".join(_finding_html(f, st) for f in cross)
+            analysis_html += f'<div class="cross-section"><div class="cross-header">{_s(st,"cross_correlations")}</div>{cross_items}</div>'
     else:
-        analysis_html = '<p style="color:#64748b;padding:2rem">No analysis available.</p>'
+        analysis_html = f'<p style="color:#64748b;padding:2rem">{_s(st,"no_analysis")}</p>'
 
     n_servers = len(results_dicts)
     n_critical = sum(
@@ -323,7 +406,7 @@ def generate_report_html(
     )
 
     return f"""<!DOCTYPE html>
-<html lang="en">
+<html lang="{html.escape(lang)}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -335,15 +418,15 @@ def generate_report_html(
 <div id="header">
   <div>
     <h1>ARCIS-SWARM — {html.escape(cluster_name)}</h1>
-    <div class="meta">{n_servers} servers · {n_critical} critical findings · Generated {generated_at}</div>
+    <div class="meta">{n_servers} servers · {n_critical} {_s(st,"critical").lower()} · {_s(st,"generated")} {generated_at}</div>
   </div>
   <div style="font-size:.7rem;color:#475569">Static report — read only</div>
 </div>
 
 <div id="tabs">
-  <div class="tab active" id="tab-diagram" onclick="showTab('diagram')">Diagram</div>
-  <div class="tab" id="tab-audit" onclick="showTab('audit')">Audit ({n_servers})</div>
-  <div class="tab" id="tab-analysis" onclick="showTab('analysis')">Analysis{' (' + str(n_critical) + ' critical)' if n_critical else ''}</div>
+  <div class="tab active" id="tab-diagram" onclick="showTab('diagram')">{_s(st,"tab_diagram")}</div>
+  <div class="tab" id="tab-audit" onclick="showTab('audit')">{_s(st,"tab_audit")} ({n_servers})</div>
+  <div class="tab" id="tab-analysis" onclick="showTab('analysis')">{_s(st,"tab_analysis")}{' (' + str(n_critical) + ' ' + _s(st,"critical").lower() + ')' if n_critical else ''}</div>
 </div>
 
 <div class="panel active" id="panel-diagram">

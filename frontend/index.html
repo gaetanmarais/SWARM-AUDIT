@@ -643,7 +643,7 @@
     </div>
     <!-- tabs -->
     <div class="flex gap-0 border-b border-slate-800 px-5">
-      <div class="tab active" onclick="connTab('hardware')" id="conn-tab-hardware">Hardware</div>
+      <div class="tab active" onclick="connTab('hardware')" id="conn-tab-hardware" data-i18n="tab_hardware">Hardware</div>
       <div class="tab" onclick="connTab('packages')" id="conn-tab-packages" data-i18n="tab_packages">Packages RPM</div>
       <div class="tab hidden" onclick="connTab('configs')" id="conn-tab-configs" data-i18n="tab_configs">Config Files</div>
       <div class="tab hidden" onclick="connTab('es-overview')" id="conn-tab-es-overview" data-i18n="tab_es_overview">ES Overview</div>
@@ -817,6 +817,25 @@ const TRANSLATIONS = {
     no_data: 'Données non disponibles',
     loading_diagram: 'Génération du diagramme…',
     no_diagram: 'Aucun diagramme disponible. Lancez un audit.',
+    tab_hardware: 'Matériel',
+    hw_cpu: 'CPU', hw_ram: 'RAM', hw_disks: 'Disques', hw_nics: 'Interfaces réseau',
+    hw_model: 'Modèle', hw_cores: 'Cœurs', hw_total: 'Total', hw_free: 'Libre',
+    hw_used_pct: 'Utilisée', hw_mount: 'Point de montage', hw_device: 'Dispositif',
+    hw_size: 'Taille', hw_avail: 'Dispo', hw_util: 'Util.', hw_iface: 'Interface',
+    hw_prefix: 'Masque', hw_no_data: 'Données hardware non disponibles pour ce nœud.',
+    conn_none: 'aucune',
+    sev_severity: 'Sévérité', sev_finding: 'Finding', sev_detail: 'Détail / Config',
+    sev_recommendation: 'Recommandation', sev_servers: 'Serveurs',
+    all_findings: 'Tous les findings', no_findings: 'Aucun finding.',
+    hp_last_ended: 'Dernier cycle terminé :', hp_last_ended_never: 'Jamais',
+    hp_cycle_ongoing: 'Cycle en cours', hp_cycle_last: 'Dernier cycle',
+    hp_started: 'démarré', hp_duration: 'durée', hp_streams_processed: 'streams traités',
+    hp_verified: 'Vérifiés', hp_relocated: 'Relocalisés', hp_offloaded: 'Offloaded',
+    hp_under_rep: 'Sous-répliqués', hp_over_rep: 'Sur-répliqués',
+    hp_no_under: 'Aucune sous-réplication', hp_no_ec_miss: 'Aucun EC manquant',
+    hp_recovery: 'Analyse de récupération du cluster',
+    hp_cycle_delay: 'Délai cycle', hp_exam_queue: 'File exam', hp_repl_queue: 'File répl.',
+    hp_pid: 'PID', hp_mem: 'Mém.', hp_target: 'cible',
   },
   en: {
     nav_diagram: 'Diagram',
@@ -900,6 +919,25 @@ const TRANSLATIONS = {
     no_data: 'Data not available',
     loading_diagram: 'Generating diagram…',
     no_diagram: 'No diagram available. Run an audit.',
+    tab_hardware: 'Hardware',
+    hw_cpu: 'CPU', hw_ram: 'RAM', hw_disks: 'Disks', hw_nics: 'Network interfaces',
+    hw_model: 'Model', hw_cores: 'Cores', hw_total: 'Total', hw_free: 'Free',
+    hw_used_pct: 'Used', hw_mount: 'Mount point', hw_device: 'Device',
+    hw_size: 'Size', hw_avail: 'Avail.', hw_util: 'Usage', hw_iface: 'Interface',
+    hw_prefix: 'Prefix', hw_no_data: 'Hardware data not available for this node.',
+    conn_none: 'none',
+    sev_severity: 'Severity', sev_finding: 'Finding', sev_detail: 'Detail / Config',
+    sev_recommendation: 'Recommendation', sev_servers: 'Servers',
+    all_findings: 'All Findings', no_findings: 'No findings.',
+    hp_last_ended: 'Last cycle ended:', hp_last_ended_never: 'Never',
+    hp_cycle_ongoing: 'Ongoing cycle', hp_cycle_last: 'Last cycle',
+    hp_started: 'started', hp_duration: 'duration', hp_streams_processed: 'streams processed',
+    hp_verified: 'Verified', hp_relocated: 'Relocated', hp_offloaded: 'Offloaded',
+    hp_under_rep: 'Under-replicated', hp_over_rep: 'Over-replicated',
+    hp_no_under: 'No under-replication', hp_no_ec_miss: 'No EC missing',
+    hp_recovery: 'Cluster Recovery Analysis',
+    hp_cycle_delay: 'Cycle delay', hp_exam_queue: 'Exam queue', hp_repl_queue: 'Repl. queue',
+    hp_pid: 'PID', hp_mem: 'Mem.', hp_target: 'target',
   },
   de: {
     nav_diagram: 'Diagramm',
@@ -983,6 +1021,25 @@ const TRANSLATIONS = {
     no_data: 'Daten nicht verfügbar',
     loading_diagram: 'Diagramm wird generiert…',
     no_diagram: 'Kein Diagramm verfügbar. Audit starten.',
+    tab_hardware: 'Hardware',
+    hw_cpu: 'CPU', hw_ram: 'RAM', hw_disks: 'Festplatten', hw_nics: 'Netzwerkschnittstellen',
+    hw_model: 'Modell', hw_cores: 'Kerne', hw_total: 'Gesamt', hw_free: 'Frei',
+    hw_used_pct: 'Genutzt', hw_mount: 'Einhängepunkt', hw_device: 'Gerät',
+    hw_size: 'Größe', hw_avail: 'Verf.', hw_util: 'Ausl.', hw_iface: 'Schnittstelle',
+    hw_prefix: 'Präfix', hw_no_data: 'Hardware-Daten für diesen Knoten nicht verfügbar.',
+    conn_none: 'keine',
+    sev_severity: 'Schweregrad', sev_finding: 'Befund', sev_detail: 'Detail / Konfig.',
+    sev_recommendation: 'Empfehlung', sev_servers: 'Server',
+    all_findings: 'Alle Befunde', no_findings: 'Keine Befunde.',
+    hp_last_ended: 'Letzter Zyklus beendet:', hp_last_ended_never: 'Nie',
+    hp_cycle_ongoing: 'Laufender Zyklus', hp_cycle_last: 'Letzter Zyklus',
+    hp_started: 'gestartet', hp_duration: 'Dauer', hp_streams_processed: 'Streams verarbeitet',
+    hp_verified: 'Geprüft', hp_relocated: 'Verlagert', hp_offloaded: 'Ausgelagert',
+    hp_under_rep: 'Unterrepliziert', hp_over_rep: 'Überrepliziert',
+    hp_no_under: 'Keine Unterreplikation', hp_no_ec_miss: 'Kein EC fehlend',
+    hp_recovery: 'Cluster-Wiederherstellungsanalyse',
+    hp_cycle_delay: 'Zyklusverzögerung', hp_exam_queue: 'Prüfwarteschlange', hp_repl_queue: 'Repl.-Warteschlange',
+    hp_pid: 'PID', hp_mem: 'Mem.', hp_target: 'Ziel',
   },
   it: {
     nav_diagram: 'Diagramma',
@@ -1066,6 +1123,25 @@ const TRANSLATIONS = {
     no_data: 'Dati non disponibili',
     loading_diagram: 'Generazione diagramma…',
     no_diagram: 'Nessun diagramma disponibile. Avviare un audit.',
+    tab_hardware: 'Hardware',
+    hw_cpu: 'CPU', hw_ram: 'RAM', hw_disks: 'Dischi', hw_nics: 'Interfacce di rete',
+    hw_model: 'Modello', hw_cores: 'Core', hw_total: 'Totale', hw_free: 'Libero',
+    hw_used_pct: 'Utilizzato', hw_mount: 'Punto di mount', hw_device: 'Dispositivo',
+    hw_size: 'Dimensione', hw_avail: 'Disp.', hw_util: 'Utilizzo', hw_iface: 'Interfaccia',
+    hw_prefix: 'Prefisso', hw_no_data: 'Dati hardware non disponibili per questo nodo.',
+    conn_none: 'nessuna',
+    sev_severity: 'Gravità', sev_finding: 'Finding', sev_detail: 'Dettaglio / Config',
+    sev_recommendation: 'Raccomandazione', sev_servers: 'Server',
+    all_findings: 'Tutti i finding', no_findings: 'Nessun finding.',
+    hp_last_ended: 'Ultimo ciclo terminato:', hp_last_ended_never: 'Mai',
+    hp_cycle_ongoing: 'Ciclo in corso', hp_cycle_last: 'Ultimo ciclo',
+    hp_started: 'avviato', hp_duration: 'durata', hp_streams_processed: 'stream elaborati',
+    hp_verified: 'Verificati', hp_relocated: 'Rilocati', hp_offloaded: 'Scaricati',
+    hp_under_rep: 'Sotto-replicati', hp_over_rep: 'Sovra-replicati',
+    hp_no_under: 'Nessuna sotto-replicazione', hp_no_ec_miss: 'Nessun EC mancante',
+    hp_recovery: 'Analisi di recupero del cluster',
+    hp_cycle_delay: 'Ritardo ciclo', hp_exam_queue: 'Coda esame', hp_repl_queue: 'Coda repl.',
+    hp_pid: 'PID', hp_mem: 'Mem.', hp_target: 'target',
   },
   es: {
     nav_diagram: 'Diagrama',
@@ -1149,6 +1225,25 @@ const TRANSLATIONS = {
     no_data: 'Datos no disponibles',
     loading_diagram: 'Generando diagrama…',
     no_diagram: 'No hay diagrama disponible. Inicie una auditoría.',
+    tab_hardware: 'Hardware',
+    hw_cpu: 'CPU', hw_ram: 'RAM', hw_disks: 'Discos', hw_nics: 'Interfaces de red',
+    hw_model: 'Modelo', hw_cores: 'Núcleos', hw_total: 'Total', hw_free: 'Libre',
+    hw_used_pct: 'Uso', hw_mount: 'Punto de montaje', hw_device: 'Dispositivo',
+    hw_size: 'Tamaño', hw_avail: 'Disp.', hw_util: 'Uso', hw_iface: 'Interfaz',
+    hw_prefix: 'Prefijo', hw_no_data: 'Datos de hardware no disponibles para este nodo.',
+    conn_none: 'ninguna',
+    sev_severity: 'Severidad', sev_finding: 'Finding', sev_detail: 'Detalle / Config',
+    sev_recommendation: 'Recomendación', sev_servers: 'Servidores',
+    all_findings: 'Todos los findings', no_findings: 'Sin findings.',
+    hp_last_ended: 'Último ciclo terminado:', hp_last_ended_never: 'Nunca',
+    hp_cycle_ongoing: 'Ciclo en curso', hp_cycle_last: 'Último ciclo',
+    hp_started: 'iniciado', hp_duration: 'duración', hp_streams_processed: 'streams procesados',
+    hp_verified: 'Verificados', hp_relocated: 'Reubicados', hp_offloaded: 'Descargados',
+    hp_under_rep: 'Bajo-replicados', hp_over_rep: 'Sobre-replicados',
+    hp_no_under: 'Sin baja replicación', hp_no_ec_miss: 'Sin EC faltante',
+    hp_recovery: 'Análisis de recuperación del clúster',
+    hp_cycle_delay: 'Retraso ciclo', hp_exam_queue: 'Cola examen', hp_repl_queue: 'Cola repl.',
+    hp_pid: 'PID', hp_mem: 'Mem.', hp_target: 'objetivo',
   },
 };
 let _lang = localStorage.getItem('arcis-lang') || 'fr';
@@ -2199,13 +2294,13 @@ function snTab(name) {
 
       // Left: recovery table
       html += `<div class="flex-1 min-w-0">`;
-      html += `<div class="text-blue-400 font-bold text-xs uppercase tracking-wide mb-1.5">Cluster Recovery Analysis</div>`;
+      html += `<div class="text-blue-400 font-bold text-xs uppercase tracking-wide mb-1.5">${t('hp_recovery')}</div>`;
       if (allEncs.length) {
         html += `<table class="w-full text-xs border-collapse">
           <thead><tr class="text-slate-500 border-b border-slate-700">
             <th class="text-left pb-1 pr-3">Encoding</th>
             <th class="text-right pb-1 pr-3">Streams</th>
-            <th class="text-right pb-1 pr-3">Under-rep</th>
+            <th class="text-right pb-1 pr-3">${t('hp_under_rep')}</th>
             <th class="text-right pb-1 pr-3">EC missing</th>
             <th class="text-left pb-1">Status</th>
           </tr></thead><tbody>`;
@@ -2243,9 +2338,9 @@ function snTab(name) {
       const badgeWarn = (t) => `<span class="px-1.5 py-0.5 rounded text-xs bg-red-900/30 text-red-400 font-bold">${t}</span>`;
       const badgeAmb  = (t) => `<span class="px-1.5 py-0.5 rounded text-xs bg-yellow-900/30 text-yellow-400">${t}</span>`;
       html += `<div class="flex flex-wrap gap-1.5 mt-2">
-        ${wholeUnder ? badgeWarn(wholeUnder.toLocaleString()+' streams under-replicated') : badgeOk('No under-replication')}
-        ${wholeOver  ? badgeAmb(wholeOver.toLocaleString()+' over-replicated') : ''}
-        ${ecMiss     ? badgeAmb(ecMiss.toLocaleString()+' EC siblings missing') : badgeOk('No EC missing')}
+        ${wholeUnder ? badgeWarn(wholeUnder.toLocaleString()+' streams '+t('hp_under_rep').toLowerCase()) : badgeOk(t('hp_no_under'))}
+        ${wholeOver  ? badgeAmb(wholeOver.toLocaleString()+' '+t('hp_over_rep').toLowerCase()) : ''}
+        ${ecMiss     ? badgeAmb(ecMiss.toLocaleString()+' EC siblings missing') : badgeOk(t('hp_no_ec_miss'))}
         ${ecDeg      ? badgeWarn(ecDeg.toLocaleString()+' EC degraded') : ''}
       </div>`;
       html += `</div>`;  // end left col
@@ -2500,15 +2595,15 @@ function snTab(name) {
     )].sort((a,b) => Number(a)-Number(b));
 
     if (ethNums.length || nicRows.length) {
-      html += section(`Interfaces réseau`);
+      html += section(t('hw_nics'));
       html += `<table class="w-full text-xs mb-2">
         <thead><tr class="text-slate-500 border-b border-slate-700 text-left">
           <th class="pb-1 pr-4">#</th>
           <th class="pb-1 pr-4">Description</th>
           <th class="pb-1 pr-4">Driver</th>
-          <th class="pb-1 pr-4">Vitesse</th>
+          <th class="pb-1 pr-4">Speed</th>
           <th class="pb-1 pr-4">MTU</th>
-          <th class="pb-1">Statut</th>
+          <th class="pb-1">Status</th>
         </tr></thead><tbody>`;
 
       if (ethNums.length) {
@@ -2574,15 +2669,20 @@ function snTab(name) {
     const onStart   = objs['HP ongoing cycle: Cycle start (secs since epoch)'] || 0;
     const onTime    = oInt('HP ongoing cycle: Cycle time');
 
+    // Compute last cycle end time
+    const lastEndTs = (lastStart && lastTime) ? (Number(lastStart) + lastTime) : 0;
+    const fmtEndTs = lastEndTs ? fmtTs(lastEndTs) : t('hp_last_ended_never');
+
     let html = `<div class="space-y-5">`;
 
     // ── Status header ──────────────────────────────────────────────────────
     html += `<div class="flex flex-wrap gap-4 items-center px-3 py-2 rounded bg-slate-900 border border-slate-800">
       <span class="text-sm font-bold ${stOk?'text-green-400':'text-red-400'}">${esc(hpState||'—')}</span>
-      <span class="text-slate-500 text-xs">Cycle delay: <b class="text-slate-300">${oInt('HP Cycle delay')}s</b></span>
-      <span class="text-slate-500 text-xs">Exam queue: <b class="text-slate-300">${oInt('HP Exam queue count')}</b></span>
-      <span class="text-slate-500 text-xs">Repl queue: <b class="text-slate-300">${oInt('HP Replication queue count')}</b></span>
-      <span class="text-slate-500 text-xs ml-auto">PID ${oInt('Process pid')} · ${oInt('Process size (MB)')} MB / ${oInt('Process target size (MB)')} MB cible</span>
+      <span class="text-slate-500 text-xs">${t('hp_cycle_delay')}: <b class="text-slate-300">${oInt('HP Cycle delay')}s</b></span>
+      <span class="text-slate-500 text-xs">${t('hp_exam_queue')}: <b class="text-slate-300">${oInt('HP Exam queue count')}</b></span>
+      <span class="text-slate-500 text-xs">${t('hp_repl_queue')}: <b class="text-slate-300">${oInt('HP Replication queue count')}</b></span>
+      <span class="text-slate-500 text-xs border-l border-slate-700 pl-4 text-cyan-400 font-medium">${t('hp_last_ended')} <b class="text-white">${fmtEndTs}</b></span>
+      <span class="text-slate-500 text-xs ml-auto">${t('hp_pid')} ${oInt('Process pid')} · ${oInt('Process size (MB)')} MB / ${oInt('Process target size (MB)')} MB ${t('hp_target')}</span>
     </div>`;
 
     // ── Ongoing cycle ──────────────────────────────────────────────────────
@@ -2592,25 +2692,24 @@ function snTab(name) {
     const onRelo  = oInt('HP ongoing cycle: Streams relocated');
     const onPct   = onExam ? onProc/onExam*100 : 0;
     if (onExam || cycleNum) {
-      html += section(`Cycle en cours #${cycleNum}  —  démarré ${fmtTs(onStart)}  (durée ${fmtDur(onTime)})`);
-      html += `<div class="mb-2">${_snBar(onPct, 200)} <span class="text-slate-500 ml-2">${onProc.toLocaleString()} / ${onExam.toLocaleString()} streams traités</span></div>`;
+      html += section(`${t('hp_cycle_ongoing')} #${cycleNum}  —  ${t('hp_started')} ${fmtTs(onStart)}  (${t('hp_duration')} ${fmtDur(onTime)})`);
+      html += `<div class="mb-2">${_snBar(onPct, 200)} <span class="text-slate-500 ml-2">${onProc.toLocaleString()} / ${onExam.toLocaleString()} ${t('hp_streams_processed')}</span></div>`;
       html += `<div class="flex flex-wrap gap-x-6 gap-y-0.5 text-xs mb-3">
-        <span class="text-slate-500">Vérifiés: <b class="text-slate-300">${onVerif.toLocaleString()}</b></span>
-        <span class="text-slate-500">Relocalisés: <b class="text-slate-300">${onRelo.toLocaleString()}</b></span>
-        <span class="text-slate-500">Offloaded: <b class="text-slate-300">${oInt('HP ongoing cycle: Streams offloaded').toLocaleString()}</b></span>
+        <span class="text-slate-500">${t('hp_verified')}: <b class="text-slate-300">${onVerif.toLocaleString()}</b></span>
+        <span class="text-slate-500">${t('hp_relocated')}: <b class="text-slate-300">${onRelo.toLocaleString()}</b></span>
+        <span class="text-slate-500">${t('hp_offloaded')}: <b class="text-slate-300">${oInt('HP ongoing cycle: Streams offloaded').toLocaleString()}</b></span>
       </div>`;
-      // Whole reps ongoing
       const owUR = oInt('HP ongoing cycle, whole reps: Under-replicated');
       const owOR = oInt('HP ongoing cycle, whole reps: Over-replicated');
       const owMC = oInt('HP ongoing cycle, whole reps: Multicasts total');
       const oecT = oInt('HP ongoing cycle, EC siblings: Total');
       const oecD = oInt('HP ongoing cycle, EC siblings: Degraded');
       html += `<div class="grid grid-cols-2 gap-x-6 text-xs">
-        <div><span class="text-slate-500">Whole reps — Sous-répliqués: </span><b class="${owUR?'text-red-400':'text-green-400'}">${owUR}</b>
-          <span class="text-slate-500 ml-3">Sur-répliqués: </span><b class="${owOR?'text-yellow-400':'text-slate-300'}">${owOR}</b>
+        <div><span class="text-slate-500">Whole reps — ${t('hp_under_rep')}: </span><b class="${owUR?'text-red-400':'text-green-400'}">${owUR}</b>
+          <span class="text-slate-500 ml-3">${t('hp_over_rep')}: </span><b class="${owOR?'text-yellow-400':'text-slate-300'}">${owOR}</b>
           <span class="text-slate-500 ml-3">Multicasts: </span><b class="text-slate-300">${owMC}</b></div>
         <div><span class="text-slate-500">EC siblings — Total: </span><b class="text-slate-300">${oecT.toLocaleString()}</b>
-          <span class="text-slate-500 ml-3">Dégradés: </span><b class="${oecD?'text-red-400':'text-green-400'}">${oecD}</b></div>
+          <span class="text-slate-500 ml-3">Degraded: </span><b class="${oecD?'text-red-400':'text-green-400'}">${oecD}</b></div>
       </div>`;
     }
 
@@ -2639,32 +2738,31 @@ function snTab(name) {
     const lecMC  = oInt('HP last cycle, EC siblings: Multicasts');
 
     if (lExam || lastNum) {
-      html += section(`Dernier cycle terminé #${lastNum}  —  ${fmtTs(lastStart)}  (durée ${fmtDur(lastTime)})`);
+      html += section(`${t('hp_cycle_last')} #${lastNum}  —  ${t('hp_started')} ${fmtTs(lastStart)}  →  ${fmtEndTs}  (${t('hp_duration')} ${fmtDur(lastTime)})`);
       html += `<div class="mb-2">${_snBar(lPct, 200)} <span class="text-slate-500 ml-2">${lProc.toLocaleString()} / ${lExam.toLocaleString()} streams</span></div>`;
       html += `<div class="flex flex-wrap gap-x-6 gap-y-0.5 text-xs mb-3">
-        <span class="text-slate-500">Vérifiés: <b class="text-slate-300">${lVerif.toLocaleString()}</b></span>
-        <span class="text-slate-500">Relocalisés: <b class="text-slate-300">${lRelo.toLocaleString()}</b></span>
-        <span class="text-slate-500">Offloaded: <b class="text-slate-300">${lOff.toLocaleString()}</b></span>
+        <span class="text-slate-500">${t('hp_verified')}: <b class="text-slate-300">${lVerif.toLocaleString()}</b></span>
+        <span class="text-slate-500">${t('hp_relocated')}: <b class="text-slate-300">${lRelo.toLocaleString()}</b></span>
+        <span class="text-slate-500">${t('hp_offloaded')}: <b class="text-slate-300">${lOff.toLocaleString()}</b></span>
       </div>`;
 
-      // Whole reps
       html += `<div class="grid grid-cols-2 gap-x-6 gap-y-3 text-xs">
         <div>
           ${section('Whole reps', 'text-blue-400')}
           <table class="w-full"><tbody>
-            <tr><td class="py-0.5 pr-4 text-slate-500 w-36">Sous-répliqués</td>
+            <tr><td class="py-0.5 pr-4 text-slate-500 w-36">${t('hp_under_rep')}</td>
               <td class="${lwUR?'text-red-400 font-bold':'text-green-400'}">${lwUR.toLocaleString()}</td></tr>
-            <tr><td class="py-0.5 pr-4 text-slate-500">Sur-répliqués</td>
+            <tr><td class="py-0.5 pr-4 text-slate-500">${t('hp_over_rep')}</td>
               <td class="${lwOR?'text-yellow-400':'text-green-400'}">${lwOR.toLocaleString()}</td></tr>
-            <tr><td class="py-0.5 pr-4 text-slate-500">Trims nécessaires</td>
+            <tr><td class="py-0.5 pr-4 text-slate-500">Trims</td>
               <td class="text-slate-300">${lwTrimN} req · ${lwTrimR} dem · ${lwTrimL} local</td></tr>
             <tr><td class="py-0.5 pr-4 text-slate-500">Multicasts</td>
               <td class="text-slate-300">${lwMCTot.toLocaleString()} <span class="text-slate-600">(freq: ${lwMCFR})</span></td></tr>
-            <tr><td class="py-0.5 pr-4 text-slate-500 text-xs">↳ trop peu répliques</td>
+            <tr><td class="py-0.5 pr-4 text-slate-500 text-xs">↳ too few replicas</td>
               <td class="${lwTFR?'text-orange-400':'text-slate-500'}">${lwTFR}</td></tr>
-            <tr><td class="py-0.5 pr-4 text-slate-500 text-xs">↳ trop peu hints</td>
+            <tr><td class="py-0.5 pr-4 text-slate-500 text-xs">↳ too few hints</td>
               <td class="${lwTFH?'text-orange-400':'text-slate-500'}">${lwTFH}</td></tr>
-            <tr><td class="py-0.5 pr-4 text-slate-500 text-xs">↳ trop peu réponses</td>
+            <tr><td class="py-0.5 pr-4 text-slate-500 text-xs">↳ too few answers</td>
               <td class="${lwTFA?'text-orange-400':'text-slate-500'}">${lwTFA}</td></tr>
             <tr><td class="py-0.5 pr-4 text-slate-500">Unicasts</td>
               <td class="text-slate-300">${lwMCUA.toLocaleString()}</td></tr>
@@ -2675,11 +2773,11 @@ function snTab(name) {
           <table class="w-full"><tbody>
             <tr><td class="py-0.5 pr-4 text-slate-500 w-32">Total</td>
               <td class="text-slate-300">${lecT.toLocaleString()}</td></tr>
-            <tr><td class="py-0.5 pr-4 text-slate-500">Dégradés</td>
+            <tr><td class="py-0.5 pr-4 text-slate-500">Degraded</td>
               <td class="${lecD?'text-red-400 font-bold':'text-green-400'}">${lecD.toLocaleString()}</td></tr>
-            <tr><td class="py-0.5 pr-4 text-slate-500">Manquants</td>
+            <tr><td class="py-0.5 pr-4 text-slate-500">Missing</td>
               <td class="${lecM?'text-red-400 font-bold':'text-green-400'}">${lecM.toLocaleString()}</td></tr>
-            <tr><td class="py-0.5 pr-4 text-slate-500">Relocalisés</td>
+            <tr><td class="py-0.5 pr-4 text-slate-500">${t('hp_relocated')}</td>
               <td class="text-slate-300">${lecR.toLocaleString()}</td></tr>
             <tr><td class="py-0.5 pr-4 text-slate-500">Multicasts</td>
               <td class="text-slate-300">${lecMC.toLocaleString()}</td></tr>
@@ -2690,10 +2788,10 @@ function snTab(name) {
 
     // ── Stream encoding breakdown ──────────────────────────────────────────
     if (hpStreamRows.length) {
-      html += section('Répartition streams (encodage)');
+      html += section('Stream encoding breakdown');
       html += `<table class="w-full text-xs mb-2">
         <thead><tr class="text-slate-500 border-b border-slate-700 text-left">
-          <th class="pb-1 pr-4">Encodage</th><th class="pb-1 pr-4">Type</th>
+          <th class="pb-1 pr-4">Encoding</th><th class="pb-1 pr-4">Type</th>
           <th class="pb-1 pr-4 text-right">Count</th><th class="pb-1 pr-4 text-right">Size Bound</th>
           <th class="pb-1 text-right">Consolidations</th>
         </tr></thead><tbody>`;
@@ -3034,34 +3132,34 @@ function connTab(name) {
 
     const cpuHtml = cpu ? `
       <div class="px-4 py-3 rounded-lg bg-slate-900 border border-slate-800">
-        <div class="text-blue-400 font-bold text-xs uppercase mb-2">CPU</div>
+        <div class="text-blue-400 font-bold text-xs uppercase mb-2">${t('hw_cpu')}</div>
         <table class="text-xs w-full"><tbody>
-          <tr><td class="py-0.5 pr-4 text-slate-500 w-32">Modèle</td><td class="text-slate-200">${esc(cpu.model||'?')}</td></tr>
-          <tr><td class="py-0.5 pr-4 text-slate-500">Cœurs</td><td class="text-white font-bold">${cpu.count||'?'}</td></tr>
+          <tr><td class="py-0.5 pr-4 text-slate-500 w-32">${t('hw_model')}</td><td class="text-slate-200">${esc(cpu.model||'?')}</td></tr>
+          <tr><td class="py-0.5 pr-4 text-slate-500">${t('hw_cores')}</td><td class="text-white font-bold">${cpu.count||'?'}</td></tr>
         </tbody></table>
       </div>` : '';
 
     const ramHtml = ram ? `
       <div class="px-4 py-3 rounded-lg bg-slate-900 border border-slate-800">
-        <div class="text-blue-400 font-bold text-xs uppercase mb-2">RAM</div>
+        <div class="text-blue-400 font-bold text-xs uppercase mb-2">${t('hw_ram')}</div>
         <table class="text-xs w-full"><tbody>
-          <tr><td class="py-0.5 pr-4 text-slate-500 w-32">Total</td><td class="text-white font-bold">${fmtRam(ram.total_mb)}</td></tr>
-          <tr><td class="py-0.5 pr-4 text-slate-500">Libre</td><td class="text-green-300">${fmtRam(ram.free_mb)}</td></tr>
-          <tr><td class="py-0.5 pr-4 text-slate-500">Utilisée</td>
+          <tr><td class="py-0.5 pr-4 text-slate-500 w-32">${t('hw_total')}</td><td class="text-white font-bold">${fmtRam(ram.total_mb)}</td></tr>
+          <tr><td class="py-0.5 pr-4 text-slate-500">${t('hw_free')}</td><td class="text-green-300">${fmtRam(ram.free_mb)}</td></tr>
+          <tr><td class="py-0.5 pr-4 text-slate-500">${t('hw_used_pct')}</td>
             <td>${bar(ram.total_mb ? (ram.total_mb - ram.free_mb) / ram.total_mb * 100 : 0)}</td></tr>
         </tbody></table>
       </div>` : '';
 
     const diskHtml = disks.length ? `
       <div class="px-4 py-3 rounded-lg bg-slate-900 border border-slate-800">
-        <div class="text-blue-400 font-bold text-xs uppercase mb-2">Disques (${disks.length})</div>
+        <div class="text-blue-400 font-bold text-xs uppercase mb-2">${t('hw_disks')} (${disks.length})</div>
         <table class="text-xs w-full"><thead>
           <tr class="text-slate-500 border-b border-slate-800">
-            <th class="pb-1 pr-4 text-left font-normal">Point de montage</th>
-            <th class="pb-1 pr-4 text-left font-normal">Dispositif</th>
-            <th class="pb-1 pr-4 text-right font-normal">Taille</th>
-            <th class="pb-1 pr-4 text-right font-normal">Libre</th>
-            <th class="pb-1 text-left font-normal">Util.</th>
+            <th class="pb-1 pr-4 text-left font-normal">${t('hw_mount')}</th>
+            <th class="pb-1 pr-4 text-left font-normal">${t('hw_device')}</th>
+            <th class="pb-1 pr-4 text-right font-normal">${t('hw_size')}</th>
+            <th class="pb-1 pr-4 text-right font-normal">${t('hw_avail')}</th>
+            <th class="pb-1 text-left font-normal">${t('hw_util')}</th>
           </tr>
         </thead><tbody>
           ${disks.map(d => `<tr class="border-b border-slate-900">
@@ -3076,12 +3174,12 @@ function connTab(name) {
 
     const nicHtml = nics.length ? `
       <div class="px-4 py-3 rounded-lg bg-slate-900 border border-slate-800">
-        <div class="text-blue-400 font-bold text-xs uppercase mb-2">Interfaces réseau</div>
+        <div class="text-blue-400 font-bold text-xs uppercase mb-2">${t('hw_nics')}</div>
         <table class="text-xs w-full"><thead>
           <tr class="text-slate-500 border-b border-slate-800">
-            <th class="pb-1 pr-4 text-left font-normal">Iface</th>
+            <th class="pb-1 pr-4 text-left font-normal">${t('hw_iface')}</th>
             <th class="pb-1 pr-4 text-left font-normal">IP</th>
-            <th class="pb-1 text-left font-normal">Masque</th>
+            <th class="pb-1 text-left font-normal">${t('hw_prefix')}</th>
           </tr>
         </thead><tbody>
           ${nics.map(ni => `<tr class="border-b border-slate-900">
@@ -3094,7 +3192,7 @@ function connTab(name) {
 
     const noData = !cpu && !ram && !disks.length && !nics.length;
     body.innerHTML = noData
-      ? '<div class="text-slate-600 italic">Données hardware non disponibles pour ce nœud.</div>'
+      ? `<div class="text-slate-600 italic">${t('hw_no_data')}</div>`
       : `<div class="space-y-3">${cpuHtml}${ramHtml}${diskHtml}${nicHtml}</div>`;
 
   } else if (name === 'connections') {
@@ -3137,7 +3235,7 @@ function connTab(name) {
     });
 
     const rows = (items, render) => items.length
-      ? items.map(render).join('') : '<div class="text-slate-600 italic py-1">aucune</div>';
+      ? items.map(render).join('') : `<div class="text-slate-600 italic py-1">${t('conn_none')}</div>`;
 
     body.innerHTML = `<div class="space-y-4">
       <div>
@@ -3581,7 +3679,7 @@ async function downloadReport() {
   const btn = document.getElementById('export-report-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
   try {
-    const r = await fetch(API+'/api/export-report');
+    const r = await fetch(API+'/api/export-report?lang='+encodeURIComponent(_lang));
     if (!r.ok) { alert('Export failed: ' + r.status); return; }
     const blob = await r.blob();
     const cd = r.headers.get('Content-Disposition') || '';
@@ -3921,20 +4019,23 @@ function _sevBadge(sev) {
   return `<span class="role-badge ${cls} text-xs">${sev}</span>`;
 }
 
-function _renderFindingsList(findings, title) {
+function _renderFindingsList(findings) {
   if (!findings || !findings.length)
-    return `<p class="text-slate-500 text-sm text-center py-6">No ${title.toLowerCase()} found.</p>`;
+    return `<p class="text-slate-500 text-sm text-center py-6">${t('no_findings')}</p>`;
 
   const sorted = [...findings].sort((a,b) => (SEV_ORDER[a.severity]||9) - (SEV_ORDER[b.severity]||9));
   const rows = sorted.map(f => {
     const extras = [];
-    if (f.current_value)   extras.push(`<div class="mt-1 text-slate-500">Current: <code class="text-red-300 bg-red-950/30 px-1 rounded text-xs whitespace-pre-wrap">${_esc(f.current_value)}</code></div>`);
+    if (f.current_value)    extras.push(`<div class="mt-1 text-slate-500">Current: <code class="text-red-300 bg-red-950/30 px-1 rounded text-xs whitespace-pre-wrap">${_esc(f.current_value)}</code></div>`);
     if (f.corrected_config) extras.push(`<div class="mt-1 text-slate-500">Fix: <code class="text-green-300 bg-green-950/30 px-1 rounded text-xs whitespace-pre-wrap">${_esc(f.corrected_config)}</code></div>`);
-    if (f.doc_reference)   extras.push(`<div class="mt-1 text-xs text-sky-400 italic">${_esc(f.doc_reference)}</div>`);
+    if (f.doc_reference)    extras.push(`<div class="mt-1 text-xs text-sky-400 italic">${_esc(f.doc_reference)}</div>`);
+    const srcBadge = f._source === 'log'
+      ? `<span class="ml-1 px-1 rounded text-xs bg-indigo-950 text-indigo-400">${t('log_findings')}</span>`
+      : `<span class="ml-1 px-1 rounded text-xs bg-slate-800 text-slate-500">${t('cfg_findings')}</span>`;
     return `
     <tr class="border-b border-slate-800 align-top">
       <td class="px-4 py-3 whitespace-nowrap">${_sevBadge(f.severity)}</td>
-      <td class="px-4 py-3 font-medium text-slate-200 text-xs">${_esc(f.title)}</td>
+      <td class="px-4 py-3 font-medium text-slate-200 text-xs">${_esc(f.title)}${srcBadge}</td>
       <td class="px-4 py-3 text-slate-400 text-xs">${_esc(f.detail)}${extras.join('')}</td>
       <td class="px-4 py-3 text-xs text-blue-300">${_esc(f.recommendation)}</td>
       <td class="px-4 py-3 text-xs text-slate-500">${(f.servers||[]).join(', ')}</td>
@@ -3946,11 +4047,11 @@ function _renderFindingsList(findings, title) {
     <table class="w-full text-sm">
       <thead class="border-b border-slate-700 bg-slate-900/40">
         <tr class="text-xs text-slate-500 uppercase">
-          <th class="text-left px-4 py-3 w-24">Severity</th>
-          <th class="text-left px-4 py-3 w-48">Finding</th>
-          <th class="text-left px-4 py-3">Detail / Config</th>
-          <th class="text-left px-4 py-3 w-56">Recommendation</th>
-          <th class="text-left px-4 py-3 w-28">Servers</th>
+          <th class="text-left px-4 py-3 w-24">${t('sev_severity')}</th>
+          <th class="text-left px-4 py-3 w-48">${t('sev_finding')}</th>
+          <th class="text-left px-4 py-3">${t('sev_detail')}</th>
+          <th class="text-left px-4 py-3 w-56">${t('sev_recommendation')}</th>
+          <th class="text-left px-4 py-3 w-28">${t('sev_servers')}</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
@@ -3960,17 +4061,16 @@ function _renderFindingsList(findings, title) {
 
 function _renderModule(mod) {
   const serverStr = (mod.servers||[]).join(', ') || '—';
-  const cfCount = (mod.config_findings||[]).length;
-  const lfCount = (mod.log_findings||[]).length;
 
-  // Count criticals/warnings for summary badge
-  const allFindings = [...(mod.config_findings||[]), ...(mod.log_findings||[])];
+  // Merge cfg + log findings, tag source, sort by severity
+  const cfTagged = (mod.config_findings||[]).map(f => ({...f, _source:'cfg'}));
+  const lfTagged = (mod.log_findings||[]).map(f => ({...f, _source:'log'}));
+  const allFindings = [...cfTagged, ...lfTagged];
   const crit = allFindings.filter(f => f.severity === 'CRITICAL').length;
   const warn = allFindings.filter(f => f.severity === 'WARNING').length;
   const summaryBadge = (crit ? `<span class="role-badge bg-red-900 text-red-300 ml-2">${crit} CRITICAL</span>` : '')
     + (warn ? `<span class="role-badge bg-yellow-900 text-yellow-300 ml-2">${warn} WARNING</span>` : '');
 
-  // Analyzed sources (config files + log keys included in the prompt)
   const cfSources = (mod.analyzed_configs || []);
   const lfSources = (mod.analyzed_logs || []);
   const sourcesHtml = (cfSources.length || lfSources.length) ? `
@@ -3990,8 +4090,7 @@ function _renderModule(mod) {
     ${mod.summary ? `<p class="text-slate-400 text-xs mb-2 italic">${_esc(mod.summary)}</p>` : ''}
     ${sourcesHtml}
   </div>
-  ${cfCount ? `<h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 mt-0 px-1">${t('cfg_findings')} (${cfCount})</h3>` + _renderFindingsList(mod.config_findings, 'config findings') : ''}
-  ${lfCount ? `<h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 mt-4 px-1">${t('log_findings')} (${lfCount})</h3>` + _renderFindingsList(mod.log_findings, 'log findings') : ''}`;
+  ${allFindings.length ? `<h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 mt-0 px-1">${t('all_findings')} (${allFindings.length})</h3>` + _renderFindingsList(allFindings) : ''}`;
 }
 
 async function loadSystemVersion() {

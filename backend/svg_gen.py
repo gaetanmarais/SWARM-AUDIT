@@ -1125,7 +1125,7 @@ def generate_svg(results: list[AuditResult], collected_at: str = "", build: str 
         )
 
         # 4b. Chassis ID subtitle (for CASTOR/STORAGE_NODE tiles)
-        _tile_primary_role = (r.roles[0].role if r.roles else "") if hasattr(r.roles[0], "role") else (r.roles[0].get("role", "") if r.roles else "")
+        _tile_primary_role = _primary_role(r)
         if _tile_primary_role in ("CASTOR", "STORAGE_NODE"):
             _cid = chassis_map.get(r.server_ip) or (r.hostname or "")
             if _cid:
