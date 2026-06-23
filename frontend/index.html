@@ -643,13 +643,14 @@
     </div>
     <!-- tabs -->
     <div class="flex gap-0 border-b border-slate-800 px-5">
-      <div class="tab active" onclick="connTab('connections')" id="conn-tab-connections" data-i18n="tab_connections">Connexions</div>
+      <div class="tab active" onclick="connTab('hardware')" id="conn-tab-hardware">Hardware</div>
       <div class="tab" onclick="connTab('packages')" id="conn-tab-packages" data-i18n="tab_packages">Packages RPM</div>
       <div class="tab hidden" onclick="connTab('configs')" id="conn-tab-configs" data-i18n="tab_configs">Config Files</div>
       <div class="tab hidden" onclick="connTab('es-overview')" id="conn-tab-es-overview" data-i18n="tab_es_overview">ES Overview</div>
       <div class="tab hidden" onclick="connTab('es-nodes')"   id="conn-tab-es-nodes" data-i18n="tab_es_nodes">ES Nœuds</div>
       <div class="tab hidden" onclick="connTab('es-indices')" id="conn-tab-es-indices" data-i18n="tab_es_indices">ES Indices</div>
       <div class="tab hidden" onclick="connTab('es-alloc')"   id="conn-tab-es-alloc" data-i18n="tab_es_disk">ES Disques</div>
+      <div class="tab" onclick="connTab('connections')" id="conn-tab-connections" data-i18n="tab_connections">Connexions</div>
     </div>
     <div id="conn-modal-body" class="flex-1 overflow-auto p-5 text-sm font-mono leading-relaxed"></div>
   </div>
@@ -3000,12 +3001,12 @@ function openConnModal(res) {
   document.getElementById('conn-tab-es-alloc').classList.toggle('hidden', !(res.es_cat_alloc || res.es_disk_info));
 
   document.getElementById('conn-modal').classList.remove('hidden');
-  connTab(isEs && hasEsData ? 'es-overview' : 'connections');
+  connTab(isEs && hasEsData ? 'es-overview' : 'hardware');
 }
 
 function connTab(name) {
   _connActiveTab = name;
-  ['connections','packages','configs','es-overview','es-nodes','es-indices','es-alloc'].forEach(t => {
+  ['hardware','packages','configs','es-overview','es-nodes','es-indices','es-alloc','connections'].forEach(t => {
     const el = document.getElementById(`conn-tab-${t}`);
     if (el) el.classList.toggle('active', t === name);
   });
@@ -3013,7 +3014,90 @@ function connTab(name) {
   if (!res) return;
   const body = document.getElementById('conn-modal-body');
 
-  if (name === 'connections') {
+  if (name === 'hardware') {
+    const cpu   = res.cpu   || null;
+    const ram   = res.ram   || null;
+    const disks = res.disks || [];
+    const nics  = (res.network_interfaces || []).filter(ni => ni.ip && ni.ip !== '127.0.0.1' && !ni.ip.startsWith('::'));
+
+    const fmtRam = (mb) => mb >= 1024 ? (mb/1024).toFixed(1) + ' GB' : mb + ' MB';
+    const bar = (pct) => {
+      const p = parseFloat(pct) || 0;
+      const c = p > 85 ? '#ef4444' : p > 70 ? '#f59e0b' : '#22c55e';
+      return `<span style="display:inline-flex;align-items:center;gap:5px;">
+        <span style="display:inline-block;width:80px;height:6px;background:#1e293b;border-radius:3px;">
+          <span style="display:block;width:${Math.min(100,p).toFixed(0)}%;height:6px;background:${c};border-radius:3px;"></span>
+        </span>
+        <span style="color:${c};font-size:10px;">${p.toFixed(0)}%</span>
+      </span>`;
+    };
+
+    const cpuHtml = cpu ? `
+      <div class="px-4 py-3 rounded-lg bg-slate-900 border border-slate-800">
+        <div class="text-blue-400 font-bold text-xs uppercase mb-2">CPU</div>
+        <table class="text-xs w-full"><tbody>
+          <tr><td class="py-0.5 pr-4 text-slate-500 w-32">Modèle</td><td class="text-slate-200">${esc(cpu.model||'?')}</td></tr>
+          <tr><td class="py-0.5 pr-4 text-slate-500">Cœurs</td><td class="text-white font-bold">${cpu.count||'?'}</td></tr>
+        </tbody></table>
+      </div>` : '';
+
+    const ramHtml = ram ? `
+      <div class="px-4 py-3 rounded-lg bg-slate-900 border border-slate-800">
+        <div class="text-blue-400 font-bold text-xs uppercase mb-2">RAM</div>
+        <table class="text-xs w-full"><tbody>
+          <tr><td class="py-0.5 pr-4 text-slate-500 w-32">Total</td><td class="text-white font-bold">${fmtRam(ram.total_mb)}</td></tr>
+          <tr><td class="py-0.5 pr-4 text-slate-500">Libre</td><td class="text-green-300">${fmtRam(ram.free_mb)}</td></tr>
+          <tr><td class="py-0.5 pr-4 text-slate-500">Utilisée</td>
+            <td>${bar(ram.total_mb ? (ram.total_mb - ram.free_mb) / ram.total_mb * 100 : 0)}</td></tr>
+        </tbody></table>
+      </div>` : '';
+
+    const diskHtml = disks.length ? `
+      <div class="px-4 py-3 rounded-lg bg-slate-900 border border-slate-800">
+        <div class="text-blue-400 font-bold text-xs uppercase mb-2">Disques (${disks.length})</div>
+        <table class="text-xs w-full"><thead>
+          <tr class="text-slate-500 border-b border-slate-800">
+            <th class="pb-1 pr-4 text-left font-normal">Point de montage</th>
+            <th class="pb-1 pr-4 text-left font-normal">Dispositif</th>
+            <th class="pb-1 pr-4 text-right font-normal">Taille</th>
+            <th class="pb-1 pr-4 text-right font-normal">Libre</th>
+            <th class="pb-1 text-left font-normal">Util.</th>
+          </tr>
+        </thead><tbody>
+          ${disks.map(d => `<tr class="border-b border-slate-900">
+            <td class="py-0.5 pr-4 text-cyan-300 font-mono">${esc(d.mount)}</td>
+            <td class="py-0.5 pr-4 text-slate-400">${esc(d.device)}</td>
+            <td class="py-0.5 pr-4 text-right text-slate-300">${d.size_gb} GB</td>
+            <td class="py-0.5 pr-4 text-right text-green-300">${d.avail_gb} GB</td>
+            <td class="py-0.5">${bar(d.used_pct)}</td>
+          </tr>`).join('')}
+        </tbody></table>
+      </div>` : '';
+
+    const nicHtml = nics.length ? `
+      <div class="px-4 py-3 rounded-lg bg-slate-900 border border-slate-800">
+        <div class="text-blue-400 font-bold text-xs uppercase mb-2">Interfaces réseau</div>
+        <table class="text-xs w-full"><thead>
+          <tr class="text-slate-500 border-b border-slate-800">
+            <th class="pb-1 pr-4 text-left font-normal">Iface</th>
+            <th class="pb-1 pr-4 text-left font-normal">IP</th>
+            <th class="pb-1 text-left font-normal">Masque</th>
+          </tr>
+        </thead><tbody>
+          ${nics.map(ni => `<tr class="border-b border-slate-900">
+            <td class="py-0.5 pr-4 text-slate-300 font-mono">${esc(ni.iface||'')}</td>
+            <td class="py-0.5 pr-4 text-cyan-300 font-mono">${esc(ni.ip)}</td>
+            <td class="py-0.5 text-slate-500">/${esc(String(ni.prefix||''))}</td>
+          </tr>`).join('')}
+        </tbody></table>
+      </div>` : '';
+
+    const noData = !cpu && !ram && !disks.length && !nics.length;
+    body.innerHTML = noData
+      ? '<div class="text-slate-600 italic">Données hardware non disponibles pour ce nœud.</div>'
+      : `<div class="space-y-3">${cpuHtml}${ramHtml}${diskHtml}${nicHtml}</div>`;
+
+  } else if (name === 'connections') {
     const allNodes = _auditResultsCache;
     const myIps = new Set([res.server_ip]);
     (res.network_interfaces || []).forEach(ni => { if (ni.ip) myIps.add(ni.ip); });
