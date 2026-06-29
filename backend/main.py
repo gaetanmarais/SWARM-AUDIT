@@ -33,6 +33,7 @@ from svg_gen import generate_svg
 from health_report import generate_health_report_html
 from analysis import run_analysis
 from report_gen import generate_report_html
+from offline_import import router as offline_router
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -106,6 +107,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Offline import endpoints
+app.include_router(offline_router)
 
 # Serve frontend
 app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
