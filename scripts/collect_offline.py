@@ -163,6 +163,7 @@ class Candidate:
     source: str           # keepalived_peer|haproxy_backend|gw_cluster|gw_es|gw_lcs|ntp_target|syslog_target|es_seed|swarmctl_storage
     hint_role: str = ""
     jump_host_ip: str = ""
+    chassis_id: str = ""  # for swarmctl_storage: chassis_id from healthreport (used as server_name)
 
 
 # ─── Audit script loader ──────────────────────────────────────────────────────
@@ -653,6 +654,7 @@ def extract_candidates(result: dict, known_ips: set) -> List[Candidate]:
         hint_role: str = "",
         jump_host_ip: str = "",
         private_only: bool = False,
+        chassis_id: str = "",
     ) -> None:
         ip = raw_ip.split(":")[0].strip()
         if not ip or ip in known_ips or ip in seen:
@@ -663,7 +665,8 @@ def extract_candidates(result: dict, known_ips: set) -> List[Candidate]:
             return  # discard public pool.ntp.org, public syslog endpoints etc.
         seen.add(ip)
         candidates.append(Candidate(
-            ip=ip, source=source, hint_role=hint_role, jump_host_ip=jump_host_ip,
+            ip=ip, source=source, hint_role=hint_role,
+            jump_host_ip=jump_host_ip, chassis_id=chassis_id,
         ))
 
     # Direct-access sources (same public network as seeds)
@@ -693,9 +696,18 @@ def extract_candidates(result: dict, known_ips: set) -> List[Candidate]:
         _add(ip, "es_seed", "ELASTICSEARCH", jump_host_ip=jump)
 
     # swarmctl-confirmed storage nodes → CASTOR stub (no SSH needed)
+    # Carry chassis_id so _build_castor_stub can use it as server_name (same as online mode)
     for node in result.get("discovered_storage_nodes", []):
-        node_entry_ip = node.get("ip", "") if isinstance(node, dict) else getattr(node, "ip", "")
-        _add(node_entry_ip, "swarmctl_storage", "CASTOR")
+        if isinstance(node, dict):
+            node_entry_ip = node.get("ip", "")
+            cid = node.get("chassis_id", "") or ""
+            # chassis_id may also be nested in health_report if not yet extracted
+            if not cid:
+                cid = (node.get("health_report") or {}).get("SNMP objects", {}).get("Chassis Id", "") or ""
+        else:
+            node_entry_ip = getattr(node, "ip", "")
+            cid = getattr(node, "chassis_id", "") or ""
+        _add(node_entry_ip, "swarmctl_storage", "CASTOR", chassis_id=cid)
 
     return candidates
 
@@ -730,10 +742,11 @@ def _audit_node_wrapped(
 def _build_castor_stub(cand: Candidate) -> dict:
     """
     Build a CASTOR stub result for swarmctl-confirmed storage nodes.
-    No SSH attempted — replicates the same stub as run_audit_with_discovery.
+    Uses chassis_id as server_name when available (mirrors online mode behaviour).
     """
-    suffix = cand.ip.split(".")[-1]
-    result = _make_error_result(cand.ip, f"castor-{suffix}", None)  # type: ignore[arg-type]
+    # Use chassis_id as name so the diagram tile shows the hardware identity, not just an IP suffix
+    name = cand.chassis_id if cand.chassis_id else f"castor-{cand.ip.split('.')[-1]}"
+    result = _make_error_result(cand.ip, name, None)  # type: ignore[arg-type]
     result.update({
         "success": True,
         "error": None,

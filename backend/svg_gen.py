@@ -973,7 +973,8 @@ def generate_svg(results: list[AuditResult], collected_at: str = "", build: str 
             f'fill="var(--text-muted,#4a5a9a)" font-size="13" font-style="italic" font-family="{FONT}">{_esc(label)}</text>'
         )
 
-    # ── VIP badge ─────────────────────────────────────────────────────────────
+    # ── VIP badge — positioned above the MASTER node (the one whose network
+    #    interfaces contain the VIP), falling back to layer centre if undetermined ──
     if 0 in layers:
         all_vips: list[str] = []
         for r in layers[0]:
@@ -982,9 +983,17 @@ def generate_svg(results: list[AuditResult], collected_at: str = "", build: str 
                 if v not in all_vips:
                     all_vips.append(v)
         if all_vips:
+            vip_set = {v.split("/")[0] for v in all_vips}
+            # Find which HAProxy node currently holds the VIP on its interfaces
+            master_cx: int | None = None
+            for r in layers[0]:
+                ni_ips = {ni.ip.split("/")[0] for ni in r.network_interfaces}
+                if ni_ips & vip_set and r.server_id in positions:
+                    master_cx = positions[r.server_id][0]
+                    break
             vip_text = "VIP " + "  ·  ".join(all_vips)
             vip_tw   = len(vip_text) * 8 + 20
-            mid_x    = pad_l + tile_area_w // 2 + TILE_MARGIN_X
+            mid_x    = master_cx if master_cx is not None else pad_l + tile_area_w // 2 + TILE_MARGIN_X
             vip_tx   = mid_x - vip_tw // 2
             vip_ty   = layer_row_tops[0][0] - 22
             parts.append(

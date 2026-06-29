@@ -3999,8 +3999,10 @@ async function offlineUpload(file) {
       'bg-green-900 text-green-300'
     );
 
-    // Auto-navigate to diagram after a short delay
-    setTimeout(() => { showTab('diagram'); loadDiagram(); }, 1800);
+    // Populate results cache then switch to diagram (cache needed for Details button)
+    await loadResults();
+    showTab('diagram');
+    loadDiagram();
 
   } catch (err) {
     _setStatus(`${t('offline_err')}: ${err.message}`, 'bg-red-900 text-red-300');

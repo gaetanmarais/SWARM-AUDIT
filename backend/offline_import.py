@@ -250,7 +250,7 @@ async def import_offline_archive(file: UploadFile = File(...)) -> dict:
 
     try:
         # Import load/save from main — lazy import to avoid circular dependency at module load
-        from main import load_inventory, save_inventory, _do_analysis, _analysis_lang  # noqa: PLC0415
+        from main import load_inventory, save_inventory, _do_analysis, _analysis_lang, DUMPS_DIR  # noqa: PLC0415
         inv = load_inventory()
         inv.last_audit = audit_run
         inv.last_analysis = None   # stale analysis no longer matches new audit
@@ -259,6 +259,20 @@ async def import_offline_archive(file: UploadFile = File(...)) -> dict:
     except Exception as exc:
         log.error("import_offline: failed to persist inventory: %s", exc)
         raise HTTPException(status_code=500, detail=f"Failed to save inventory: {exc}")
+
+    # Write per-node dump files so GET /api/audit/dump/<id> (JSON button in diagram) works
+    try:
+        import re as _re  # noqa: PLC0415
+        DUMPS_DIR.mkdir(parents=True, exist_ok=True)
+        for result in validated_results:
+            safe_id = _re.sub(r"[^\w-]", "-", result.server_id)
+            try:
+                (DUMPS_DIR / f"{safe_id}.json").write_text(result.model_dump_json(indent=2))
+            except Exception as exc_dump:
+                log.warning("import_offline: could not write dump for %s: %s", result.server_ip, exc_dump)
+        log.info("import_offline: wrote %d dump file(s) to %s", len(validated_results), DUMPS_DIR)
+    except Exception as exc:
+        log.warning("import_offline: dump write failed (non-fatal): %s", exc)
 
     # Trigger AI analysis in background — same as after a live audit
     # _do_analysis checks internally whether credentials are configured
