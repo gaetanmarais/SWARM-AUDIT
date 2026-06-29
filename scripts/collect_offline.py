@@ -428,16 +428,19 @@ def _audit_node(
 
     effective_jump_creds = jump_creds or creds
 
-    # Establish jump host connection once (shared across cred attempts on target)
+    # Per-jump-host semaphore held for the ENTIRE audit duration (open + script + close).
+    # Releasing early (after just opening the channel) still leaves the channel open on
+    # the jump host and does not free a MaxSessions slot — the sem must wrap everything.
+    sem = _jump_semaphore(jump_ip) if jump_ip else None
+    if sem:
+        sem.acquire()
+
     jump_client: Optional[paramiko.SSHClient] = None
     jump_channel: Optional[paramiko.Channel] = None
 
-    if jump_ip:
-        jump_opened = False
-        # Acquire per-jump-host slot to avoid saturating sshd MaxStartups
-        sem = _jump_semaphore(jump_ip)
-        sem.acquire()
-        try:
+    try:
+        if jump_ip:
+            jump_opened = False
             for jcred in effective_jump_creds:
                 try:
                     jump_client, jump_channel = _open_jump_channel(
@@ -448,16 +451,13 @@ def _audit_node(
                     break
                 except Exception as exc:
                     log.info(f"  {ip}: jump host {jump_ip} cred '{jcred.name}' failed: {exc}")
-        finally:
-            sem.release()
 
-        if not jump_opened:
-            log.error(_fail(f"{ip}: jump host {jump_ip} unreachable (tried {len(effective_jump_creds)} cred(s))"))
-            return _make_error_result(
-                ip, ip, f"Jump host {jump_ip} unreachable (tried {len(effective_jump_creds)} cred(s))"
-            )
+            if not jump_opened:
+                log.error(_fail(f"{ip}: jump host {jump_ip} unreachable (tried {len(effective_jump_creds)} cred(s))"))
+                return _make_error_result(
+                    ip, ip, f"Jump host {jump_ip} unreachable (tried {len(effective_jump_creds)} cred(s))"
+                )
 
-    try:
         last_error: str = "No credential available"
         for cred in creds:
             client: Optional[paramiko.SSHClient] = None
@@ -466,10 +466,8 @@ def _audit_node(
                 client = _open_ssh(ip, port, cred, sock=jump_channel)
                 data = _run_audit_script(client, ip, audit_sh)
                 if not data.get("success", True) and "error" in data:
-                    # Script-level failure (non-auth) — don't retry with other creds
                     log.warning(_fail(f"{ip}: script error (cred '{cred.name}'): {data['error']}"))
                     return _build_result(ip, data)
-                # Success
                 log.info(_ok(f"{ip}: audit complete via cred '{cred.name}'"))
                 return _build_result(ip, data)
 
@@ -480,7 +478,6 @@ def _audit_node(
                 err_str = str(exc)
                 last_error = f"SSH/network error with cred '{cred.name}': {exc}"
                 log.info(f"  {ip}: {last_error}")
-                # connect timeout or unreachable — no point trying other creds
                 if "timed out" in err_str.lower() or "connection refused" in err_str.lower():
                     break
             except Exception as exc:
@@ -497,7 +494,7 @@ def _audit_node(
         return _make_error_result(ip, ip, last_error)
 
     finally:
-        # Close jump channel and client regardless of outcome
+        # Close jump resources before releasing the semaphore slot
         if jump_channel is not None:
             try:
                 jump_channel.close()
@@ -508,6 +505,8 @@ def _audit_node(
                 jump_client.close()
             except Exception:
                 pass
+        if sem is not None:
+            sem.release()
 
 
 def _make_error_result(ip: str, name: str, error: str) -> dict:

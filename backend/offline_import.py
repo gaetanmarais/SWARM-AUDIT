@@ -250,7 +250,7 @@ async def import_offline_archive(file: UploadFile = File(...)) -> dict:
 
     try:
         # Import load/save from main — lazy import to avoid circular dependency at module load
-        from main import load_inventory, save_inventory  # noqa: PLC0415
+        from main import load_inventory, save_inventory, _do_analysis, _analysis_lang  # noqa: PLC0415
         inv = load_inventory()
         inv.last_audit = audit_run
         inv.last_analysis = None   # stale analysis no longer matches new audit
@@ -260,6 +260,16 @@ async def import_offline_archive(file: UploadFile = File(...)) -> dict:
         log.error("import_offline: failed to persist inventory: %s", exc)
         raise HTTPException(status_code=500, detail=f"Failed to save inventory: {exc}")
 
+    # Trigger AI analysis in background — same as after a live audit
+    # _do_analysis checks internally whether credentials are configured
+    try:
+        import asyncio  # noqa: PLC0415
+        asyncio.create_task(_do_analysis(validated_results, lang=_analysis_lang))
+        log.info("import_offline: AI analysis triggered in background")
+    except Exception as exc:
+        # Non-fatal — import succeeded, analysis will need to be launched manually
+        log.warning("import_offline: could not trigger analysis: %s", exc)
+
     return {
         "ok": True,
         "imported": imported_count,
@@ -267,6 +277,7 @@ async def import_offline_archive(file: UploadFile = File(...)) -> dict:
         "errors": error_msgs,
         "collected_at": collected_at,
         "cluster": cluster_name,
+        "analysis": "triggered",
     }
 
 
