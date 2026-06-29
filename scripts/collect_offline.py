@@ -1122,7 +1122,7 @@ def _print_summary(results: List[dict], output_path: Path) -> None:
     print(file=sys.stderr)
     if ok > 0:
         print("  Import into ARCIS:", file=sys.stderr)
-        print(f"    curl -X POST http://<arcis-host>:8000/api/import/offline \\", file=sys.stderr)
+        print(f"    curl -X POST http://<arcis-host>:8099/api/import/offline \\", file=sys.stderr)
         print(f"         -F file=@{output_path}", file=sys.stderr)
     print(file=sys.stderr)
 
