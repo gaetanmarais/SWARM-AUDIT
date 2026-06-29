@@ -83,11 +83,14 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 # ─── Constants ────────────────────────────────────────────────────────────────
-VERSION            = "1.0.0"
+VERSION            = "1.1.0"
 SSH_CONNECT_TIMEOUT = 20    # seconds — TCP + handshake + auth
 SCRIPT_TIMEOUT     = 600    # seconds — audit.sh max execution time
 MAX_WAVES          = 4      # default multi-wave depth
 MAX_WORKERS        = 10     # concurrent SSH threads
+# Max simultaneous SSH connections through the same jump host.
+# sshd defaults: MaxStartups=10:30:100, MaxSessions=10 — stay well below.
+MAX_CONCURRENT_PER_JUMP = 4
 
 # ─── ANSI helpers ─────────────────────────────────────────────────────────────
 _IS_TTY = hasattr(sys.stderr, "isatty") and sys.stderr.isatty()
@@ -102,6 +105,18 @@ def _ok(msg: str) -> str:   return _c("32", f"[OK]   {msg}")
 def _fail(msg: str) -> str: return _c("31", f"[FAIL] {msg}")
 def _skip(msg: str) -> str: return _c("33", f"[SKIP] {msg}")
 def _info(msg: str) -> str: return _c("36", f"[INFO] {msg}")
+
+# ─── Per-jump-host concurrency control ────────────────────────────────────────
+# Multiple threads jumping through the same host saturate sshd MaxStartups.
+# One semaphore per jump IP caps simultaneous tunnel openings.
+_jump_sem_registry: Dict[str, threading.Semaphore] = {}
+_jump_sem_registry_lock = threading.Lock()
+
+def _jump_semaphore(jump_ip: str) -> threading.Semaphore:
+    with _jump_sem_registry_lock:
+        if jump_ip not in _jump_sem_registry:
+            _jump_sem_registry[jump_ip] = threading.Semaphore(MAX_CONCURRENT_PER_JUMP)
+        return _jump_sem_registry[jump_ip]
 
 # ─── Logging setup ────────────────────────────────────────────────────────────
 # All progress goes to stderr so stdout remains clean for piping.
@@ -419,16 +434,22 @@ def _audit_node(
 
     if jump_ip:
         jump_opened = False
-        for jcred in effective_jump_creds:
-            try:
-                jump_client, jump_channel = _open_jump_channel(
-                    jump_ip, jcred.port, jcred, ip, port
-                )
-                log.info(_info(f"{ip}: jump via {jump_ip} opened with cred '{jcred.name}'"))
-                jump_opened = True
-                break
-            except Exception as exc:
-                log.info(f"  {ip}: jump host {jump_ip} cred '{jcred.name}' failed: {exc}")
+        # Acquire per-jump-host slot to avoid saturating sshd MaxStartups
+        sem = _jump_semaphore(jump_ip)
+        sem.acquire()
+        try:
+            for jcred in effective_jump_creds:
+                try:
+                    jump_client, jump_channel = _open_jump_channel(
+                        jump_ip, jcred.port, jcred, ip, port
+                    )
+                    log.info(_info(f"{ip}: jump via {jump_ip} opened with cred '{jcred.name}'"))
+                    jump_opened = True
+                    break
+                except Exception as exc:
+                    log.info(f"  {ip}: jump host {jump_ip} cred '{jcred.name}' failed: {exc}")
+        finally:
+            sem.release()
 
         if not jump_opened:
             log.error(_fail(f"{ip}: jump host {jump_ip} unreachable (tried {len(effective_jump_creds)} cred(s))"))
