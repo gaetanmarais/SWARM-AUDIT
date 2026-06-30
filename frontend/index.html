@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <!--
-  Version: 1.23.0
-  Date:    2026-06-22
-  Notes:   VIP badge on HAProxy MASTER node — cross-ref haproxy_vips vs network_interfaces
+  Version: 1.24.0
+  Date:    2026-06-30
+  Notes:   3-column layout — left sidebar (Découverte/Résultat/Diagramme/Analyse IA), right sidebar (Configuration/Offline/Settings/Aide); header reordered Health/Download/Run/Clear/Lang
 -->
 <html lang="en">
 <head>
@@ -53,8 +53,18 @@
   .role-badge { padding:2px 8px; border-radius:12px; font-size:11px; font-weight:600; color:#fff; }
   .tab { cursor:pointer; padding:8px 16px; border-bottom:2px solid transparent; color:var(--fg-dim); font-size:13px; }
   .tab.active { border-color:#3b82f6; color:var(--fg); }
-  #diagram-container { cursor: grab; height: calc(100vh - 160px); overflow: auto; width: 100%; }
+  #diagram-container { cursor: grab; height: calc(100vh - 120px); overflow: auto; width: 100%; }
   #diagram-inner svg { display:block; width:100%; height:auto; }
+
+  /* ─── Sidebars ──────────────────────────────────────────────────────────────── */
+  .sidenav { width:160px; min-width:160px; border-color:var(--bd); padding:12px 0; display:flex; flex-direction:column; gap:2px; }
+  .sidenav-left  { border-right:1px solid var(--bd); }
+  .sidenav-right { border-left:1px solid var(--bd); }
+  .sidenav-item { cursor:pointer; padding:9px 14px; color:var(--fg-dim); font-size:13px; border-radius:6px; margin:0 6px; transition:background .15s,color .15s; white-space:nowrap; }
+  .sidenav-item:hover { background:var(--bg-gh); color:var(--fg); }
+  .sidenav-left  .sidenav-item.active { background:var(--bg-gh); color:var(--fg); font-weight:600; border-left:3px solid #3b82f6; padding-left:11px; }
+  .sidenav-right .sidenav-item.active { background:var(--bg-gh); color:var(--fg); font-weight:600; border-right:3px solid #3b82f6; padding-right:11px; }
+  .sidenav-section { font-size:10px; font-weight:700; letter-spacing:.08em; color:var(--fg-dim); padding:14px 14px 4px; text-transform:uppercase; opacity:.5; }
   .spinner { animation:spin 1s linear infinite; }
   @keyframes spin { to { transform:rotate(360deg); } }
   .pulse { animation:pulse 2s ease-in-out infinite; }
@@ -97,30 +107,6 @@
     <p class="text-xs mt-0.5" style="color:var(--fg-dim);">Infrastructure Audit &amp; Role Mapping &nbsp;<span id="build-badge" class="font-mono text-slate-600 text-xs"></span></p>
   </div>
   <div class="flex items-center gap-3">
-    <!-- Language selector -->
-    <select id="lang-select" onchange="setLang(this.value)"
-      class="text-xs rounded px-1.5 py-0.5 border border-slate-700 bg-transparent cursor-pointer focus:outline-none"
-      style="color:var(--fg-dim)">
-      <option value="fr">🇫🇷 FR</option>
-      <option value="en">🇬🇧 EN</option>
-      <option value="de">🇩🇪 DE</option>
-      <option value="it">🇮🇹 IT</option>
-      <option value="es">🇪🇸 ES</option>
-    </select>
-    <!-- Theme toggle -->
-    <button id="theme-toggle" onclick="toggleTheme()"
-      class="btn btn-ghost flex items-center gap-1.5 text-xs" title="Toggle light/dark mode">
-      <!-- moon: shown in dark mode -->
-      <svg id="theme-moon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-          d="M21 12.79A9 9 0 1111.21 3a7 7 0 009.79 9.79z"/>
-      </svg>
-      <!-- sun: shown in light mode -->
-      <svg id="theme-sun" class="w-4 h-4 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-          d="M12 3v1m0 16v1m8.66-9H21M3 12H2m15.07-6.07l-.71.71M6.64 17.36l-.71.71M17.36 17.36l.71.71M6.64 6.64l.71.71M12 8a4 4 0 100 8 4 4 0 000-8z"/>
-      </svg>
-    </button>
     <div id="audit-status-badge" class="hidden text-xs px-3 py-1 rounded-full bg-slate-800 text-slate-400"></div>
     <div id="analysis-badge" class="hidden flex items-center gap-2 text-xs px-3 py-1 rounded-full bg-purple-900 text-purple-300">
       <svg class="w-3 h-3 spinner" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -136,9 +122,9 @@
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
           d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
       </svg>
-      Health Report
+      <span data-i18n="btn_health">Health</span>
     </a>
-    <!-- Download Report (standalone HTML, no credentials) -->
+    <!-- Download Report -->
     <button id="export-report-btn" onclick="downloadReport()"
        class="btn btn-ghost flex items-center gap-1.5 text-xs"
        title="Télécharger le rapport HTML autonome — sans inventaire ni credentials">
@@ -146,8 +132,18 @@
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
           d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
       </svg>
-      Download Report
+      <span data-i18n="btn_download">Download</span>
     </button>
+    <!-- Run Audit -->
+    <button onclick="triggerAudit()" id="audit-btn"
+      class="btn btn-primary flex items-center gap-2">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/>
+      </svg>
+      <span data-i18n="btn_run">Run</span>
+    </button>
+    <!-- Clear -->
     <button onclick="clearAudit()" id="clear-btn"
       class="btn btn-ghost flex items-center gap-1.5 text-xs"
       title="Clear previous audit results">
@@ -155,32 +151,45 @@
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
           d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
       </svg>
-      Clear
+      <span data-i18n="btn_clear">Clear</span>
     </button>
-    <button onclick="triggerAudit()" id="audit-btn"
-      class="btn btn-primary flex items-center gap-2">
-      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <!-- Language selector -->
+    <select id="lang-select" onchange="setLang(this.value)"
+      class="text-xs rounded px-1.5 py-0.5 border border-slate-700 bg-transparent cursor-pointer focus:outline-none"
+      style="color:var(--fg-dim)">
+      <option value="fr">🇫🇷 FR</option>
+      <option value="en">🇬🇧 EN</option>
+      <option value="de">🇩🇪 DE</option>
+      <option value="it">🇮🇹 IT</option>
+      <option value="es">🇪🇸 ES</option>
+    </select>
+    <!-- Theme toggle -->
+    <button id="theme-toggle" onclick="toggleTheme()"
+      class="btn btn-ghost flex items-center gap-1.5 text-xs" title="Toggle light/dark mode">
+      <svg id="theme-moon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-          d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/>
+          d="M21 12.79A9 9 0 1111.21 3a7 7 0 009.79 9.79z"/>
       </svg>
-      Run Audit
+      <svg id="theme-sun" class="w-4 h-4 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M12 3v1m0 16v1m8.66-9H21M3 12H2m15.07-6.07l-.71.71M6.64 17.36l-.71.71M17.36 17.36l.71.71M6.64 6.64l.71.71M12 8a4 4 0 100 8 4 4 0 000-8z"/>
+      </svg>
     </button>
   </div>
 </div>
 
-<!-- Tabs -->
-<div class="border-b border-slate-800 px-6 flex gap-0">
-  <div class="tab active" onclick="showTab('diagram')" id="tab-diagram" data-i18n="nav_diagram">Diagram</div>
-  <div class="tab" onclick="showTab('results')" id="tab-results" data-i18n="nav_results">Audit Results</div>
-  <div class="tab" onclick="showTab('analysis')" id="tab-analysis" data-i18n="nav_analysis">Analysis</div>
-  <div class="tab" onclick="showTab('discovery')" id="tab-discovery" data-i18n="nav_discovery">Discovery</div>
-  <div class="tab" onclick="showTab('servers')" id="tab-servers" data-i18n="nav_servers">Servers</div>
-  <div class="tab" onclick="showTab('credentials')" id="tab-credentials" data-i18n="nav_credentials">Credentials</div>
-  <div class="tab" onclick="showTab('offline')" id="tab-offline" data-i18n="nav_offline">Offline</div>
-  <div class="tab" onclick="showTab('help')" id="tab-help" data-i18n="nav_help">Help</div>
-</div>
+<div class="flex" style="min-height:calc(100vh - 73px)">
 
-<div class="p-6 max-w-screen-2xl mx-auto">
+<!-- Left sidebar -->
+<nav class="sidenav sidenav-left">
+  <div class="sidenav-item" onclick="showTab('discovery')" id="sidenav-discovery" data-i18n="nav_discovery">Découverte</div>
+  <div class="sidenav-item" onclick="showTab('results')" id="sidenav-results" data-i18n="nav_results">Résultat</div>
+  <div class="sidenav-item active" onclick="showTab('diagram')" id="sidenav-diagram" data-i18n="nav_diagram">Diagramme</div>
+  <div class="sidenav-item" onclick="showTab('analysis')" id="sidenav-analysis" data-i18n="nav_analysis">Analyse IA</div>
+</nav>
+
+<!-- Main content -->
+<div class="flex-1 p-6 overflow-auto min-w-0">
 
   <!-- ── DIAGRAM TAB ── -->
   <div id="panel-diagram">
@@ -225,144 +234,10 @@
     </div>
   </div>
 
-  <!-- ── SERVERS TAB ── -->
-  <div id="panel-servers" class="hidden">
-    <div class="flex justify-between items-center mb-4">
-      <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider">Server Inventory</h2>
-      <div class="flex items-center gap-2">
-        <button onclick="exportConfig()" class="btn btn-ghost flex items-center gap-1.5 text-xs"
-          title="Export servers &amp; credential profiles (no secrets)">
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
-          </svg>
-          Export Config
-        </button>
-        <label class="btn btn-ghost flex items-center gap-1.5 text-xs cursor-pointer"
-          title="Import servers &amp; credential profiles">
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
-          </svg>
-          Import
-          <input type="file" accept=".json" class="hidden" onchange="importConfig(event)"/>
-        </label>
-        <button onclick="openServerModal()" class="btn btn-primary text-xs">+ Add Server</button>
-      </div>
-    </div>
-    <div class="card rounded-xl overflow-hidden">
-      <table class="w-full text-sm">
-        <thead class="border-b border-slate-700">
-          <tr class="text-xs text-slate-500 uppercase">
-            <th class="text-left px-4 py-3">Name</th>
-            <th class="text-left px-4 py-3">IP</th>
-            <th class="text-left px-4 py-3">Credential</th>
-            <th class="px-4 py-3"></th>
-          </tr>
-        </thead>
-        <tbody id="servers-tbody"></tbody>
-      </table>
-    </div>
-  </div>
+  <!-- (panel-servers and panel-credentials merged into panel-configuration) -->
 
-  <!-- ── CREDENTIALS TAB ── -->
-  <div id="panel-credentials" class="hidden">
-    <div class="flex justify-between items-center mb-4">
-      <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider">SSH Credentials</h2>
-      <div class="flex items-center gap-2">
-        <button onclick="exportConfig()" class="btn btn-ghost flex items-center gap-1.5 text-xs"
-          title="Export servers &amp; credential profiles (no secrets)">
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
-          </svg>
-          Export Config
-        </button>
-        <label class="btn btn-ghost flex items-center gap-1.5 text-xs cursor-pointer"
-          title="Import servers &amp; credential profiles">
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
-          </svg>
-          Import
-          <input type="file" accept=".json" class="hidden" onchange="importConfig(event)"/>
-        </label>
-        <button onclick="openCredModal()" class="btn btn-primary text-xs">+ Add Credential</button>
-      </div>
-    </div>
-    <div class="card rounded-xl overflow-hidden">
-      <table class="w-full text-sm">
-        <thead class="border-b border-slate-700">
-          <tr class="text-xs text-slate-500 uppercase">
-            <th class="text-left px-4 py-3">Profile Name</th>
-            <th class="text-left px-4 py-3">User</th>
-            <th class="text-left px-4 py-3">Port</th>
-            <th class="text-left px-4 py-3">Auth</th>
-            <th class="text-left px-4 py-3">Default</th>
-            <th class="px-4 py-3"></th>
-          </tr>
-        </thead>
-        <tbody id="credentials-tbody"></tbody>
-      </table>
-    </div>
-
-    <!-- AI Analysis Settings -->
-    <div class="mt-6">
-      <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-3">AI Analysis</h2>
-      <div class="card rounded-xl p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
-        <!-- Analysis backend selector -->
-        <div class="md:col-span-2">
-          <label class="block text-xs text-slate-400 mb-2">Analysis Backend</label>
-          <div class="flex gap-3 flex-wrap">
-            <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-300">
-              <input type="radio" name="analysis-backend" value="auto" class="accent-purple-500"/> Auto <span class="text-slate-500">(direct si clé dispo, sinon Hub MCP)</span>
-            </label>
-            <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-300">
-              <input type="radio" name="analysis-backend" value="hub_mcp" class="accent-purple-500"/> Hub MCP <span class="text-purple-400">(ask_claude)</span>
-            </label>
-            <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-300">
-              <input type="radio" name="analysis-backend" value="direct" class="accent-purple-500"/> Direct Anthropic API
-            </label>
-          </div>
-        </div>
-        <div>
-          <label class="block text-xs text-slate-400 mb-1">Hub MCP URL</label>
-          <input id="settings-mcp-url" type="text" class="input text-xs font-mono w-full" placeholder="https://…/mcp"/>
-          <p class="text-xs text-slate-500 mt-1">Requis pour Hub MCP (RAG + ask_claude). Overridden by <code>CLAUDE_HUB_MCP_URL</code>.</p>
-        </div>
-        <div>
-          <label class="block text-xs text-slate-400 mb-1">Hub MCP Token <span class="text-slate-500">(scopes: chat:write + rag:read)</span></label>
-          <input id="settings-mcp-token" type="password" class="input text-xs font-mono w-full" placeholder="mcp_…"/>
-          <p class="text-xs text-slate-500 mt-1">Token "Swarm-audit" dans Hub Admin → MCP. Overridden by <code>CLAUDE_HUB_MCP_TOKEN</code>.</p>
-        </div>
-        <div class="md:col-span-2">
-          <label class="block text-xs text-slate-400 mb-1">Anthropic API Key <span class="text-slate-500">(direct uniquement)</span></label>
-          <input id="settings-anthropic-key" type="password" class="input text-xs font-mono w-full" placeholder="sk-ant-…"/>
-          <p class="text-xs text-slate-500 mt-1">Utilisée uniquement si backend = Direct ou Auto sans token Hub. Overridden by <code>ANTHROPIC_API_KEY</code>.</p>
-        </div>
-        <div class="md:col-span-2 flex items-center gap-3">
-          <button onclick="saveSettings()" class="btn btn-primary text-xs">Save</button>
-          <span id="settings-saved-msg" class="text-xs text-green-400 hidden">Saved</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── Update section ── -->
-    <div class="card rounded-xl p-5 mt-4">
-      <h3 class="font-semibold text-slate-200 text-sm mb-4">Version &amp; mise à jour</h3>
-      <div class="flex flex-wrap items-center gap-3 mb-3">
-        <div class="text-xs text-slate-400">
-          Version actuelle : <code id="sys-version-hash" class="bg-slate-800 text-cyan-300 px-1.5 py-0.5 rounded">…</code>
-          <span id="sys-version-msg" class="text-slate-500 ml-2"></span>
-        </div>
-        <button onclick="checkUpdate()" class="btn btn-ghost text-xs px-3 py-1">Vérifier</button>
-      </div>
-      <div id="sys-update-status" class="text-xs mb-3 hidden"></div>
-      <button id="sys-update-btn" onclick="doUpdate()" class="btn btn-primary text-xs hidden">
-        Mettre à jour depuis GitHub
-      </button>
-    </div>
-  </div>
+  <!-- ── CREDENTIALS TAB legacy placeholder — content moved to panel-configuration ── -->
+  <div id="panel-credentials" class="hidden"></div>
 
   <!-- ── OFFLINE TAB ── -->
   <div id="panel-offline" class="hidden">
@@ -687,9 +562,145 @@
       <div id="analysis-panels"></div>
     </div>
 
+  <!-- ── CONFIGURATION PANEL (Servers + Credentials) ── -->
+  <div id="panel-configuration" class="hidden">
+
+    <!-- Servers section -->
+    <div class="mb-8">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider" data-i18n="nav_servers">Server Inventory</h2>
+        <div class="flex items-center gap-2">
+          <button onclick="exportConfig()" class="btn btn-ghost flex items-center gap-1.5 text-xs"
+            title="Export servers &amp; credential profiles (no secrets)">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+            </svg>
+            Export
+          </button>
+          <label class="btn btn-ghost flex items-center gap-1.5 text-xs cursor-pointer">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+            </svg>
+            Import
+            <input type="file" accept=".json" class="hidden" onchange="importConfig(event)"/>
+          </label>
+          <button onclick="openServerModal()" class="btn btn-primary text-xs">+ Add Server</button>
+        </div>
+      </div>
+      <div class="card rounded-xl overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="border-b border-slate-700">
+            <tr class="text-xs text-slate-500 uppercase">
+              <th class="text-left px-4 py-3">Name</th>
+              <th class="text-left px-4 py-3">IP</th>
+              <th class="text-left px-4 py-3">Credential</th>
+              <th class="px-4 py-3"></th>
+            </tr>
+          </thead>
+          <tbody id="servers-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Credentials section -->
+    <div>
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider" data-i18n="nav_credentials">SSH Credentials</h2>
+        <button onclick="openCredModal()" class="btn btn-primary text-xs">+ Add Credential</button>
+      </div>
+      <div class="card rounded-xl overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="border-b border-slate-700">
+            <tr class="text-xs text-slate-500 uppercase">
+              <th class="text-left px-4 py-3">Profile Name</th>
+              <th class="text-left px-4 py-3">User</th>
+              <th class="text-left px-4 py-3">Port</th>
+              <th class="text-left px-4 py-3">Auth</th>
+              <th class="text-left px-4 py-3">Default</th>
+              <th class="px-4 py-3"></th>
+            </tr>
+          </thead>
+          <tbody id="credentials-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
   </div>
 
-</div>
+  <!-- ── SETTINGS PANEL (MCP + Update) ── -->
+  <div id="panel-settings" class="hidden">
+
+    <!-- AI Analysis Settings -->
+    <div class="mb-4">
+      <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-3">AI Analysis</h2>
+      <div class="card rounded-xl p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="md:col-span-2">
+          <label class="block text-xs text-slate-400 mb-2">Analysis Backend</label>
+          <div class="flex gap-3 flex-wrap">
+            <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-300">
+              <input type="radio" name="analysis-backend" value="auto" class="accent-purple-500"/> Auto <span class="text-slate-500">(direct si clé dispo, sinon Hub MCP)</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-300">
+              <input type="radio" name="analysis-backend" value="hub_mcp" class="accent-purple-500"/> Hub MCP <span class="text-purple-400">(ask_claude)</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-300">
+              <input type="radio" name="analysis-backend" value="direct" class="accent-purple-500"/> Direct Anthropic API
+            </label>
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Hub MCP URL</label>
+          <input id="settings-mcp-url" type="text" class="input text-xs font-mono w-full" placeholder="https://…/mcp"/>
+          <p class="text-xs text-slate-500 mt-1">Requis pour Hub MCP (RAG + ask_claude). Overridden by <code>CLAUDE_HUB_MCP_URL</code>.</p>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1">Hub MCP Token <span class="text-slate-500">(scopes: chat:write + rag:read)</span></label>
+          <input id="settings-mcp-token" type="password" class="input text-xs font-mono w-full" placeholder="mcp_…"/>
+          <p class="text-xs text-slate-500 mt-1">Token "Swarm-audit" dans Hub Admin → MCP. Overridden by <code>CLAUDE_HUB_MCP_TOKEN</code>.</p>
+        </div>
+        <div class="md:col-span-2">
+          <label class="block text-xs text-slate-400 mb-1">Anthropic API Key <span class="text-slate-500">(direct uniquement)</span></label>
+          <input id="settings-anthropic-key" type="password" class="input text-xs font-mono w-full" placeholder="sk-ant-…"/>
+          <p class="text-xs text-slate-500 mt-1">Utilisée uniquement si backend = Direct ou Auto sans token Hub. Overridden by <code>ANTHROPIC_API_KEY</code>.</p>
+        </div>
+        <div class="md:col-span-2 flex items-center gap-3">
+          <button onclick="saveSettings()" class="btn btn-primary text-xs">Save</button>
+          <span id="settings-saved-msg" class="text-xs text-green-400 hidden">Saved</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Update section -->
+    <div class="card rounded-xl p-5">
+      <h3 class="font-semibold text-slate-200 text-sm mb-4">Version &amp; mise à jour</h3>
+      <div class="flex flex-wrap items-center gap-3 mb-3">
+        <div class="text-xs text-slate-400">
+          Version actuelle : <code id="sys-version-hash" class="bg-slate-800 text-cyan-300 px-1.5 py-0.5 rounded">…</code>
+          <span id="sys-version-msg" class="text-slate-500 ml-2"></span>
+        </div>
+        <button onclick="checkUpdate()" class="btn btn-ghost text-xs px-3 py-1">Vérifier</button>
+      </div>
+      <div id="sys-update-status" class="text-xs mb-3 hidden"></div>
+      <button id="sys-update-btn" onclick="doUpdate()" class="btn btn-primary text-xs hidden">
+        Mettre à jour depuis GitHub
+      </button>
+    </div>
+
+  </div>
+
+</div><!-- end main content -->
+
+<!-- Right sidebar -->
+<nav class="sidenav sidenav-right">
+  <div class="sidenav-item" onclick="showTab('configuration')" id="sidenav-configuration" data-i18n="nav_configuration">Configuration</div>
+  <div class="sidenav-item" onclick="showTab('offline')" id="sidenav-offline" data-i18n="nav_offline">Offline</div>
+  <div class="sidenav-item" onclick="showTab('settings')" id="sidenav-settings" data-i18n="nav_settings">Settings</div>
+  <div class="sidenav-item" onclick="showTab('help')" id="sidenav-help" data-i18n="nav_help">Aide</div>
+</nav>
+
+</div><!-- end flex wrapper -->
 
 <!-- ── NODE DETAIL MODAL ── -->
 <div id="conn-modal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onclick="closeConnModal(event)">
@@ -803,8 +814,10 @@ const TRANSLATIONS = {
     nav_discovery: 'Découverte',
     nav_servers: 'Serveurs',
     nav_credentials: 'Identifiants',
+    nav_configuration: 'Configuration',
     nav_settings: 'Paramètres',
     nav_offline: 'Offline',
+    btn_health: 'Health', btn_download: 'Download', btn_run: 'Run', btn_clear: 'Clear',
     offline_step1_title: 'Étape 1 — Télécharger le script de collecte',
     offline_step1_desc: 'Exécutez ce script Python sur un nœud ayant accès SSH au cluster. Il découvre et audite tous les nœuds accessibles, puis génère une archive à importer ici.',
     offline_dl_btn: 'Télécharger collect_offline.py',
@@ -916,7 +929,9 @@ const TRANSLATIONS = {
     nav_discovery: 'Discovery',
     nav_servers: 'Servers',
     nav_credentials: 'Credentials',
+    nav_configuration: 'Configuration',
     nav_settings: 'Settings',
+    btn_health: 'Health', btn_download: 'Download', btn_run: 'Run', btn_clear: 'Clear',
     nav_offline: 'Offline',
     offline_step1_title: 'Step 1 — Download the collector script',
     offline_step1_desc: 'Run this Python script on any node with SSH access to the cluster. It discovers and audits all reachable nodes, then produces an archive to import here.',
@@ -1029,7 +1044,9 @@ const TRANSLATIONS = {
     nav_discovery: 'Erkennung',
     nav_servers: 'Server',
     nav_credentials: 'Zugangsdaten',
+    nav_configuration: 'Konfiguration',
     nav_settings: 'Einstellungen',
+    btn_health: 'Health', btn_download: 'Download', btn_run: 'Run', btn_clear: 'Clear',
     nav_offline: 'Offline',
     offline_step1_title: 'Schritt 1 — Collector-Skript herunterladen',
     offline_step1_desc: 'Führen Sie dieses Python-Skript auf einem Knoten mit SSH-Zugriff auf den Cluster aus.',
@@ -1142,7 +1159,9 @@ const TRANSLATIONS = {
     nav_discovery: 'Scoperta',
     nav_servers: 'Server',
     nav_credentials: 'Credenziali',
+    nav_configuration: 'Configurazione',
     nav_settings: 'Impostazioni',
+    btn_health: 'Health', btn_download: 'Download', btn_run: 'Run', btn_clear: 'Clear',
     nav_offline: 'Offline',
     offline_step1_title: 'Passo 1 — Scarica lo script collector',
     offline_step1_desc: 'Esegui questo script Python su un nodo con accesso SSH al cluster.',
@@ -1255,7 +1274,9 @@ const TRANSLATIONS = {
     nav_discovery: 'Descubrimiento',
     nav_servers: 'Servidores',
     nav_credentials: 'Credenciales',
-    nav_settings: 'Configuración',
+    nav_configuration: 'Configuración',
+    nav_settings: 'Ajustes',
+    btn_health: 'Health', btn_download: 'Download', btn_run: 'Run', btn_clear: 'Clear',
     nav_offline: 'Offline',
     offline_step1_title: 'Paso 1 — Descargar el script collector',
     offline_step1_desc: 'Ejecute este script Python en un nodo con acceso SSH al cluster.',
@@ -4010,17 +4031,23 @@ async function offlineUpload(file) {
 }
 
 // ─── Tab navigation ───────────────────────────────────────────────────────────
-const TABS = ['diagram', 'results', 'analysis', 'discovery', 'servers', 'credentials', 'offline', 'help'];
+const TABS = ['diagram', 'results', 'analysis', 'discovery', 'configuration', 'offline', 'settings', 'help', 'servers', 'credentials'];
+const LEFT_NAV  = ['discovery', 'results', 'diagram', 'analysis'];
+const RIGHT_NAV = ['configuration', 'offline', 'settings', 'help'];
 function showTab(name) {
   TABS.forEach(t => {
     document.getElementById('panel-' + t)?.classList.toggle('hidden', t !== name);
-    document.getElementById('tab-' + t)?.classList.toggle('active', t === name);
   });
-  if (name === 'discovery')    loadDiscovery();
-  if (name === 'results')      loadResults();
-  if (name === 'analysis')     loadAnalysis();
-  if (name === 'servers')      renderServers();
-  if (name === 'credentials')  renderCredentials();
+  LEFT_NAV.forEach(t => {
+    document.getElementById('sidenav-' + t)?.classList.toggle('active', t === name);
+  });
+  RIGHT_NAV.forEach(t => {
+    document.getElementById('sidenav-' + t)?.classList.toggle('active', t === name);
+  });
+  if (name === 'discovery')      loadDiscovery();
+  if (name === 'results')        loadResults();
+  if (name === 'analysis')       loadAnalysis();
+  if (name === 'configuration')  { renderServers(); renderCredentials(); }
 }
 
 // ─── Theme toggle ─────────────────────────────────────────────────────────────
