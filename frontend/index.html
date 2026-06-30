@@ -4176,17 +4176,30 @@ function renderAnalysis(data) {
   subtabs.innerHTML = '';
   panels.innerHTML  = '';
 
-  const allTabs = [...modules.map(m => m.role), corrs.length ? '_CORRELATIONS' : null].filter(Boolean);
+  // Sort modules by worst severity (CRITICAL first)
+  const _modWorst = m => Math.min(...[...(m.config_findings||[]), ...(m.log_findings||[])].map(f => SEV_ORDER[f.severity] ?? 9));
+  const sortedModules = [...modules].sort((a, b) => _modWorst(a) - _modWorst(b));
+  const allTabs = [...sortedModules.map(m => m.role), corrs.length ? '_CORRELATIONS' : null].filter(Boolean);
   const firstTab = prevActiveTab && allTabs.includes(prevActiveTab) ? prevActiveTab : allTabs[0];
 
   allTabs.forEach((tabId, idx) => {
     const label = tabId === '_CORRELATIONS' ? t('cross_correlations_tab')
                 : tabId.replace(/_/g,' ');
     const isFirst = tabId === firstTab;
+
+    // Badge on tab if module has CRITICAL or WARNING
+    let tabBadge = '';
+    if (tabId !== '_CORRELATIONS') {
+      const mod = sortedModules.find(m => m.role === tabId);
+      const worst = mod ? _modWorst(mod) : 9;
+      if (worst === 0) tabBadge = ' <span style="font-size:9px;vertical-align:middle;background:#7f1d1d;color:#fca5a5;border-radius:4px;padding:1px 5px">CRIT</span>';
+      else if (worst === 1) tabBadge = ' <span style="font-size:9px;vertical-align:middle;background:#713f12;color:#fde68a;border-radius:4px;padding:1px 5px">WARN</span>';
+    }
+
     const tabEl = document.createElement('div');
     tabEl.className = 'tab' + (isFirst ? ' active' : '');
     tabEl.id = 'atab-' + tabId;
-    tabEl.textContent = label;
+    tabEl.innerHTML = label + tabBadge;
     tabEl.onclick = () => showAnalysisSubTab(tabId);
     subtabs.appendChild(tabEl);
 
@@ -4195,9 +4208,9 @@ function renderAnalysis(data) {
     panelEl.className = isFirst ? 'pt-4' : 'pt-4 hidden';
 
     if (tabId === '_CORRELATIONS') {
-      panelEl.innerHTML = _renderFindingsList(corrs, 'Cross-Component Correlations');
+      panelEl.innerHTML = _renderFindingsList(corrs);
     } else {
-      const mod = modules.find(m => m.role === tabId);
+      const mod = sortedModules.find(m => m.role === tabId);
       panelEl.innerHTML = mod ? _renderModule(mod) : '';
     }
     panels.appendChild(panelEl);
@@ -4224,7 +4237,7 @@ function _renderFindingsList(findings) {
   if (!findings || !findings.length)
     return `<p class="text-slate-500 text-sm text-center py-6">${t('no_findings')}</p>`;
 
-  const sorted = [...findings].sort((a,b) => (SEV_ORDER[a.severity]||9) - (SEV_ORDER[b.severity]||9));
+  const sorted = [...findings].sort((a,b) => (SEV_ORDER[a.severity] ?? 9) - (SEV_ORDER[b.severity] ?? 9));
   const rows = sorted.map(f => {
     const extras = [];
     if (f.current_value)    extras.push(`<div class="mt-1 text-slate-500">Current: <code class="text-red-300 bg-red-950/30 px-1 rounded text-xs whitespace-pre-wrap">${_esc(f.current_value)}</code></div>`);
